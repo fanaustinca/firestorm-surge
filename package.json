@@ -1,0 +1,24 @@
+{
+  "name": "firestorm-surge",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vite build && node tests/e2e.mjs",
+    "test:quick": "vite build && node tests/e2e.mjs --quick",
+    "test:mp": "vite build && node tests/mp.mjs",
+    "test:flow": "node tests/flow.mjs test-results",
+    "gallery": "node tests/gallery.mjs test-results/gallery"
+  },
+  "type": "module",
+  "dependencies": {
+    "three": "^0.170.0",
+    "trystero": "^0.27.0"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.17.0",
+    "vite": "^6.4.6"
+  },
+  "private": true
+}
