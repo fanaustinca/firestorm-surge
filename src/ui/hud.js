@@ -25,6 +25,7 @@ export class Hud {
       <div id="scope"><div class="ring"></div><div class="cross"></div></div>
       <div id="ov-flash"></div><div id="ov-thermal"></div><div id="ov-stun"></div><div id="ov-low"></div><div id="ov-dmg"></div>
       <div id="emo"><span>EMOTIONAL DAMAGE</span></div>
+      <div id="killban"></div>
       <div id="scoreboard"></div>
       <div id="spectate"></div>
       <div id="hint">WASD move · Space jump · Mouse aim · LMB fire · RMB aim/ability · R reload · 1–5 slots · F thermal · Tab scores · B loadout</div>`;
@@ -49,6 +50,15 @@ export class Hud {
   }
   toast(msg, kind = '') {
     if (!msg) return; const t = this.el.toast; t.textContent = msg; t.className = 'on ' + kind; this.toastT = 2.2;
+  }
+  // "ELIMINATED <name>" banner with weapon icon + coin bounty
+  killBanner(name, weapon, coins, extra = '') {
+    const el = document.getElementById('killban'); if (!el) return;
+    const w = WEAPON_BY_ID[weapon];
+    const row = document.createElement('div'); row.className = 'kb';
+    row.innerHTML = `<span class="x">✖</span><b>ELIMINATED</b> ${esc(name)}${w ? `<img src="${itemIcon(weapon) || ''}" alt=""><small>${esc(w.name)}</small>` : ''}${extra ? `<em>${extra}</em>` : ''}${coins ? `<i>+${coins} ◉</i>` : ''}`;
+    el.prepend(row); while (el.children.length > 3) el.lastChild.remove();
+    setTimeout(() => row.classList.add('out'), 2300); setTimeout(() => row.remove(), 2800);
   }
   center(msg, t = 2) { const c = this.el['center-msg']; c.innerHTML = msg; c.classList.add('on'); this.centerT = t; }
   killfeed(killer, victim, weapon, head) {
@@ -85,14 +95,15 @@ export class Hud {
     this.el['ov-thermal'].style.opacity = a.thermal.on ? 1 : 0;
     this.el['ov-stun'].style.opacity = a.fx.stun > 0 ? 0.9 : 0;
     const hpF = (a.hp) / a.maxHp;
-    this.el['ov-low'].style.opacity = a.alive ? Math.max(0, (0.45 - hpF) / 0.45).toFixed(2) : 0;
+    const low = a.alive ? Math.max(0, (0.5 - hpF) / 0.5) : 0;
+    this.el['ov-low'].style.opacity = low ? (0.35 + low * 0.65 * (0.8 + 0.2 * Math.sin(performance.now() / (hpF < 0.2 ? 110 : 220)))).toFixed(2) : 0;
     this.dmgT = Math.max(0, this.dmgT - dt); this.el['ov-dmg'].style.opacity = (this.dmgT * 2.4).toFixed(2);
     // score/time
     const m = g.match; if (m) {
       const s = m.scoreline();
       this.el['sc-l'].textContent = s.left; this.el['sc-r'].textContent = s.right;
       this.el.sclabel.textContent = s.ffa ? `YOU · LEADER ${s.leader ? s.leader.toUpperCase() : ''} · ${s.label}` : `${m.mode.short} · ${s.label}`;
-      this.el.timer.textContent = m.phase === 'warmup' ? `${Math.ceil(m.t)}` : fmt(m.timeLeft);
+      this.el.timer.textContent = m.phase === 'warmup' ? `${Math.ceil(m.t)}` : m.mode.practice ? '∞' : fmt(m.timeLeft);
       this.root.classList.toggle('ffa', !!s.ffa);
     }
     // health
@@ -144,7 +155,7 @@ export class Hud {
       el.querySelector('.cnt').textContent = cnt; el.querySelector('.cd').style.height = `${Math.max(0, Math.min(1, cd)) * 100}%`;
     }
     // crosshair
-    const scoped = d?.scope && g.vm.adsK > 0.92;
+    const scoped = d?.scope && g.vm.adsK > 0.6;
     this.el.scope.classList.toggle('on', !!scoped);
     const melee = d && ['melee', 'throwable', 'usable'].includes(d.kind);
     const spread = d ? ((d.spread || 0.01) * (a.ads ? 0.3 : 1) + a.bloom) * 900 + Math.hypot(a.vel.x, a.vel.z) * 1.2 + (a.onGround ? 0 : 10) : 10;

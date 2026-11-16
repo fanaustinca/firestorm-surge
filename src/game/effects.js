@@ -10,11 +10,15 @@ export class Effects {
   constructor(scene, camera) {
     this.scene = scene; this.camera = camera;
     this.root = new THREE.Group(); this.root.name = 'effects'; scene.add(this.root);
-    // tracers: unit box along +Z, scaled per bullet
-    this.MAX_TRACERS = 384;
-    this.tracerMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }), this.MAX_TRACERS);
-    this.tracerMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.tracerMesh.frustumCulled = false; this.tracerMesh.count = 0;
-    this.tracerMesh.setColorAt(0, new THREE.Color(1, 1, 1));
+    // tracers: every bullet in flight is a cheap 2-vertex line segment (one draw call, low fidelity on purpose)
+    this.MAX_TRACERS = 4096;
+    const tg = new THREE.BufferGeometry();
+    this.tPos = new Float32Array(this.MAX_TRACERS * 6); this.tCol = new Float32Array(this.MAX_TRACERS * 6);
+    tg.setAttribute('position', new THREE.BufferAttribute(this.tPos, 3).setUsage(THREE.DynamicDrawUsage));
+    tg.setAttribute('color', new THREE.BufferAttribute(this.tCol, 3).setUsage(THREE.DynamicDrawUsage));
+    tg.setDrawRange(0, 0);
+    this.tracerMesh = new THREE.LineSegments(tg, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+    this.tracerMesh.frustumCulled = false; this.tracerCount = 0;
     this.root.add(this.tracerMesh);
     // additive particles
     this.MAXP = 1600;
@@ -120,9 +124,8 @@ export class Effects {
     return mesh;
   }
 
-  firePool(pool) { // {pos, radius, time}
-    const mesh = new THREE.Mesh(new THREE.CircleGeometry(pool.radius, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff5010, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
-    mesh.position.copy(pool.pos).add(_p.set(0, 0.05, 0)); this.root.add(mesh);
+  firePool(pool) { // {pos, radius, time} — just flames, no ground disc
+    const mesh = new THREE.Object3D(); this.root.add(mesh);
     this.pools.push({ mesh, pool, acc: 0 });
   }
 
@@ -151,18 +154,20 @@ export class Effects {
   // ───── per-frame ─────
   update(dt, bullets) {
     const cam = this.camera;
-    // tracers
-    let n = 0; const tm = this.tracerMesh;
+    // tracers (all bullets)
+    let n = 0; const P = this.tPos, C = this.tCol;
     for (const b of bullets) {
-      if (!b.visible || n >= this.MAX_TRACERS) continue;
-      const len = Math.min(b.traveled, b.thin ? 2.2 : 3.2); if (len < 0.05) continue;
-      _p.copy(b.vis || b.pos).addScaledVector(b.dir, -len / 2);
-      _q.setFromUnitVectors(FWD, b.dir);
-      const w = b.thin ? 0.012 : 0.022;
-      _s.set(w, w, len); _m.compose(_p, _q, _s); tm.setMatrixAt(n, _m);
-      tm.setColorAt(n, _c.set(b.color || 0xffd080)); n++;
+      if (n >= this.MAX_TRACERS) break;
+      const len = Math.min(b.traveled + 0.3, b.thin ? 2.0 : 3.2);
+      const h = b.vis || b.pos; const o = n * 6;
+      P[o] = h.x; P[o + 1] = h.y; P[o + 2] = h.z;
+      P[o + 3] = h.x - b.dir.x * len; P[o + 4] = h.y - b.dir.y * len; P[o + 5] = h.z - b.dir.z * len;
+      _c.set(b.color || 0xffd080);
+      C[o] = _c.r; C[o + 1] = _c.g; C[o + 2] = _c.b; C[o + 3] = _c.r * 0.25; C[o + 4] = _c.g * 0.2; C[o + 5] = _c.b * 0.15;
+      n++;
     }
-    tm.count = n; tm.instanceMatrix.needsUpdate = true; if (tm.instanceColor) tm.instanceColor.needsUpdate = true;
+    const tg = this.tracerMesh.geometry; tg.setDrawRange(0, n * 2); this.tracerCount = n;
+    if (n) { tg.attributes.position.needsUpdate = true; tg.attributes.color.needsUpdate = true; }
     // additive particles
     const pm = this.pMesh; let k = 0;
     for (let i = this.parts.length - 1; i >= 0; i--) {
@@ -207,8 +212,7 @@ export class Effects {
       const fp = this.pools[i]; const pool = fp.pool;
       if (pool.t >= pool.time) { this.root.remove(fp.mesh); this.pools.splice(i, 1); continue; }
       fp.acc += dt * 60;
-      while (fp.acc > 1) { fp.acc -= 1; const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * pool.radius; this.flame(pool.pos.clone().add(_p.set(Math.cos(a) * r, 0.1, Math.sin(a) * r)), new THREE.Vector3(0, 1.5 + Math.random() * 1.5, 0)); }
-      fp.mesh.material.opacity = 0.25 + Math.random() * 0.15;
+      while (fp.acc > 0.6) { fp.acc -= 0.6; const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * pool.radius; this.flame(pool.pos.clone().add(_p.set(Math.cos(a) * r, 0.1, Math.sin(a) * r)), new THREE.Vector3(0, 1.5 + Math.random() * 1.5, 0)); }
     }
     for (let i = this.tethers.length - 1; i >= 0; i--) { const t = this.tethers[i]; t.t -= dt; if (t.t <= 0) { this.root.remove(t.mesh); this.tethers.splice(i, 1); } else t.mesh.material.opacity = Math.random(); }
     for (let i = this.popups.length - 1; i >= 0; i--) {

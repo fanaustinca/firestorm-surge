@@ -123,8 +123,8 @@ function dmr(m) {
 
 function rocket_launcher(m, opt = {}) {
   const g = new THREE.Group();
-  const olive = m.olive.clone(); olive.side = THREE.DoubleSide;
-  P(g, cylZ(0.065, 0.065, 1.05, 32), m.olive, 0, 0.12, -0.12);
+  const olive = m.gunmetal.clone(); olive.side = THREE.DoubleSide;
+  P(g, cylZ(0.065, 0.065, 1.05, 32), m.gunmetal, 0, 0.12, -0.12);
   P(g, latheZ([[0.064, 0], [0.068, -0.02], [0.09, -0.1], [0.086, -0.105]], 32), olive, 0, 0.12, 0.405);
   P(g, cylZ(0.071, 0.071, 0.03, 32), m.darksteel, 0, 0.12, -0.63);
   P(g, cylZ(0.069, 0.069, 0.05, 32), m.hazard, 0, 0.12, -0.5);
@@ -303,7 +303,7 @@ function grenade_launcher(m, opt = {}) {
 
 function mortar(m) {
   const g = new THREE.Group();
-  const olive = m.olive.clone(); olive.side = THREE.DoubleSide;
+  const olive = m.gunmetal.clone(); olive.side = THREE.DoubleSide;
   P(g, cylZ(0.052, 0.052, 0.85, 28, true), olive, 0, 0.1, -0.3);
   P(g, cylZ(0.04, 0.04, 0.84, 20), m.polymer, 0, 0.1, -0.3);                  // dark bore liner
   P(g, cylZ(0.06, 0.06, 0.04, 28), m.darksteel, 0, 0.1, -0.71);
@@ -327,7 +327,7 @@ function mortar(m) {
   P(g, cylX(0.004, 0.004, 0.08, 8), m.steel, 0.03, -0.11, -0.43);
   // sight unit
   P(g, rbox(0.03, 0.03, 0.04, 0.004), m.darksteel, -0.07, 0.13, -0.32);
-  P(g, rbox(0.04, 0.05, 0.08, 0.006), m.olive, -0.1, 0.16, -0.32);
+  P(g, rbox(0.04, 0.05, 0.08, 0.006), m.polymer, -0.1, 0.16, -0.32);
   P(g, cylZ(0.012, 0.012, 0.03, 12), m.lens, -0.1, 0.17, -0.37);
   P(g, cylX(0.006, 0.006, 0.03, 10), m.glowGreen, -0.1, 0.19, -0.3);
   P(g, tube([[0, 0.152, -0.15], [0, 0.2, -0.17], [0, 0.2, -0.27], [0, 0.152, -0.29]], 0.009, 20, 8), m.polymer);

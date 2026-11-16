@@ -2,7 +2,7 @@ import { startServer, launch, openGame, wait } from './lib.mjs';
 const srv = await startServer(4610); const browser = await launch(); const errors = [];
 const page = await openGame(browser, srv.url, errors);
 const SC = process.argv[2] || 'test-results'; (await import('node:fs')).mkdirSync(SC, { recursive: true });
-for (const [map, mode, secs] of [['cargo_yard', '1v1', 300], ['underground_lab', '2v2', 500], ['abandoned_city', 'red_vs_blue', 310], ['desert_outpost', 'ffa', 250]]) {
+for (const [map, mode, secs] of [['refinery', '1v1', 640], ['frostbite', '2v2', 560], ['neon_market', 'red_vs_blue', 310], ['jungle_temple', 'ffa', 250]]) {
   const r = await page.evaluate((m, mo, s) => {
     DEV.loadMap(m, mo); const g = DEV.game; g.timeScale = 0; const t0 = performance.now(); let steps = 0;
     while (!g.match.ended && steps < s * 60) { g.fixedUpdate(1 / 60); steps++; if (steps % 30 === 0) g.renderFrame(0.5); }

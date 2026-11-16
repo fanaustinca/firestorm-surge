@@ -15,9 +15,12 @@ const POSE = {
   grenade_launcher: [0.2, -0.24, -0.58, 0, 0, 0, 0.95], dmr: [0.19, -0.23, -0.62, 0, 0, 0, 0.95],
   pistol: [0.16, -0.16, -0.46, 0, 0.04, 0, 1], burst_pistol: [0.16, -0.16, -0.46, 0, 0.04, 0, 1], revolver: [0.16, -0.17, -0.46, 0, 0.04, 0, 1], taser: [0.17, -0.2, -0.48, 0, 0, 0, 1], crossbow: [0.17, -0.22, -0.52, 0, 0, 0, 1],
   katana: [0.3, -0.3, -0.52, -0.35, -1.45, 0.42, 0.95, 'ZXY'], knife: [0.22, -0.24, -0.42, -1.15, 0.25, 0.35, 1], karambit: [0.22, -0.24, -0.42, -0.6, 0.3, 0.3, 1],
+  land_mine: [0.2, -0.26, -0.5, 0.55, 0.3, 0, 0.55],
+  lmg_ultra: [0.25, -0.31, -0.72, 0, 0.06, 0, 0.78], rocket_launcher_ultra: [0.27, -0.37, -0.72, 0, 0.05, 0, 0.68],
+  mortar_ultra: [0.29, -0.4, -0.82, 0.26, 0.06, 0, 0.6], flamethrower_ultra: [0.23, -0.27, -0.64, 0, 0.03, 0, 0.82], grenade_launcher_ultra: [0.22, -0.27, -0.6, 0, 0.03, 0, 0.88],
   bat: [0.32, -0.42, -0.5, -0.3, 0.2, 0.5, 1], sledgehammer: [0.34, -0.48, -0.55, -0.3, 0.25, 0.5, 0.95], scythe: [0.32, -0.9, -0.8, -0.12, 0.35, 0.3, 1],
 };
-const ONE_HAND = ['knife', 'karambit', 'katana', 'frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb', 'shurikens', 'slippers', 'pistol', 'revolver', 'taser', 'adrenaline'];
+const ONE_HAND = ['knife', 'karambit', 'katana', 'frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb', 'land_mine', 'shurikens', 'slippers', 'pistol', 'revolver', 'taser', 'adrenaline'];
 const MELEE = ['knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer'];
 
 export class ViewModel {
@@ -50,16 +53,19 @@ export class ViewModel {
     const key = id + ':' + (skin || '');
     if (this.itemId === key) return;
     if (this.item) this.holder.remove(this.item);
-    this.itemId = key; this.id = id;
-    this.item = id ? buildItem(id, { skin }) : null;
-    this.kind = MELEE.includes(id) ? 'melee' : id === 'fists' ? 'fists' : ['frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb'].includes(id) ? 'throw' : ['medkit', 'ammo_pack', 'armor_plate', 'adrenaline', 'barricade'].includes(id) ? 'usable' : id === 'shurikens' || id === 'slippers' ? 'hand' : 'gun';
+    this.itemId = key; this.fullId = id; id = id && id.endsWith('_ultra') ? id.slice(0, -6) : id; this.id = id;
+    this.item = this.fullId ? buildItem(this.fullId, { skin }) : null;
+    this.kind = MELEE.includes(id) ? 'melee' : id === 'fists' ? 'fists' : ['frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb', 'land_mine'].includes(id) ? 'throw' : ['medkit', 'ammo_pack', 'armor_plate', 'adrenaline', 'barricade'].includes(id) ? 'usable' : id === 'shurikens' || id === 'slippers' ? 'hand' : 'gun';
     if (this.item) {
       this.item.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
       const deco = this.item.getObjectByName('holidayDeco'); if (deco) deco.visible = false;
-      this.item.scale.setScalar(POSE[id]?.[6] ?? 1);
+      this.item.scale.setScalar((POSE[this.fullId] || POSE[id])?.[6] ?? 1);
       this.holder.add(this.item);
       this.muzzle = findMarker(this.item, 'muzzle'); this.sight = findMarker(this.item, 'sight'); this.fore = findMarker(this.item, 'foregrip');
-      this.mag = this.item.getObjectByName('mag'); this.round = this.item.getObjectByName('round'); this.pump = this.item.getObjectByName('pump'); this.pilot = this.item.getObjectByName('pilot');
+      this.mag = this.item.getObjectByName('mag'); this.round = this.item.getObjectByName('round'); this.pump = this.item.getObjectByName('pump'); this.pilot = this.item.getObjectByName('pilot'); this.pilot2 = this.item.getObjectByName('pilot2'); this.spin = this.item.getObjectByName('spin'); this.spinV = 0; this.flickT = 0;
+      this.seeThru = []; this.item.traverse((o) => { if (o.isMesh && o.material?.userData?.seeThru) this.seeThru.push(o); });
+      // every gun can aim down sights: synthesize a sight line over the barrel when the model has no optic
+      if (!this.sight && this.muzzle && this.kind === 'gun') { this.sight = new THREE.Object3D(); this.sight.position.set(this.muzzle.position.x, this.muzzle.position.y + 0.035, 0.12); this.item.add(this.sight); }
       this.magBase = this.mag ? this.mag.position.clone() : null; this.pumpBase = this.pump ? this.pump.position.clone() : null;
     }
     this.drawK = 1;
@@ -86,7 +92,7 @@ export class ViewModel {
     this.kick += (0 - this.kick) * Math.min(1, dt * 14); this.kickRot += (0 - this.kickRot) * Math.min(1, dt * 12);
     // base pose
     const pos = V().copy(BASE); const rot = new THREE.Euler(0, 0, 0);
-    const pose = POSE[this.id];
+    const pose = POSE[this.fullId] || POSE[this.id];
     if (pose) { pos.set(pose[0], pose[1], pose[2]); rot.set(pose[3], pose[4], pose[5], pose[7] || 'XYZ'); }
     else if (this.kind === 'melee') { pos.set(0.26, -0.3, -0.48); rot.set(-0.6, 0.2, 0.4); }
     else if (this.kind === 'fists') { pos.set(0, -0.2, -0.38); rot.set(0, 0, 0); }
@@ -94,7 +100,7 @@ export class ViewModel {
     else if (this.kind === 'usable') { pos.set(0.05, -0.2, -0.42); rot.set(0.25, -0.2, 0); }
     // ADS alignment
     if (this.adsK > 0.001 && this.sight) {
-      const s = this.sight.position; const ads = V(-s.x, -s.y, -0.12 - s.z + (def?.scope ? -0.05 : 0));
+      const k = this.item.scale.x; const s = this.sight.position; const ads = V(-s.x * k, -s.y * k, -0.12 - s.z * k + (def?.scope ? -0.05 : 0));
       ads.z = Math.min(ads.z, -0.25);
       pos.lerp(ads, this.adsK); rot.x *= 1 - this.adsK; rot.y *= 1 - this.adsK; rot.z *= 1 - this.adsK;
     }
@@ -136,10 +142,18 @@ export class ViewModel {
     pos.y -= this.drawK * 0.35; rot.x -= this.drawK * 0.7;
     if (a.fx.stun > 0) { pos.x += (Math.random() - 0.5) * 0.01; pos.y += (Math.random() - 0.5) * 0.01 - 0.05; }
     this.holder.position.copy(pos); this.holder.rotation.copy(rot);
-    // pilot flame flicker
-    if (this.pilot) { const f = 0.8 + Math.random() * 0.4; this.pilot.scale.set(f, f, 0.7 + Math.random() * 0.6); }
+    // pilot flame: slow, smooth flicker (the old per-frame random scale read as the gun vibrating)
+    this.flickT += dt;
+    for (const pl of [this.pilot, this.pilot2]) if (pl) { const f = 0.92 + Math.sin(this.flickT * 7.3) * 0.05 + Math.sin(this.flickT * 3.1) * 0.03; pl.scale.set(f, f, f); }
+    // rotary parts (Ultra rocket wheel / minigun / GL drum) spin up while firing
+    if (this.spin) {
+      const firing = ws && a.lastShotT != null && (opts.time ?? 0) - a.lastShotT < 0.15;
+      this.spinV += ((firing ? 18 : 0) - this.spinV) * Math.min(1, dt * (firing ? 6 : 2));
+      this.spin.rotation.z += this.spinV * dt;
+    }
     this.updateHands(a);
-    this.root.visible = this.visible && !(def?.scope && this.adsK > 0.92);
+    for (const o of this.seeThru || []) o.visible = this.adsK < 0.2;
+    this.root.visible = this.visible && !(def?.scope && this.adsK > 0.6);
     this.camera.fov = 64 - this.adsK * 12; this.camera.updateProjectionMatrix();
   }
 
@@ -182,6 +196,7 @@ export class ViewModel {
   onFire(def) {
     const r = def.recoil || 0.02;
     if (def.kind === 'melee' || def.kind === 'throwable') return;
+    if (def.kind === 'flame') { this.kick += 0.004; return; }
     this.kick += Math.min(0.12, 0.03 + r * 1.2) * (1 - this.adsK * 0.5); this.kickRot += Math.min(0.25, 0.04 + r * 2.5) * (1 - this.adsK * 0.5);
   }
 

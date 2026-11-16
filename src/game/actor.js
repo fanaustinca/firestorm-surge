@@ -7,7 +7,7 @@ export const RADIUS = 0.4, HEIGHT = 1.8, EYE = 1.6;
 export class WeaponState {
   constructor(def, mods) {
     this.def = def; this.id = def.id;
-    const shellBonus = ['rocket_launcher', 'mortar'].includes(def.id) ? (mods.shells || 0) : 0;
+    const shellBonus = ['rocket_launcher', 'mortar'].includes(def.base || def.id) ? (mods.shells || 0) : 0;
     this.mag = def.mag ?? 0;
     this.reserveMax = def.reserve === Infinity ? Infinity : Math.round((def.reserve ?? 0) * (1 + (mods.reserve || 0))) + shellBonus;
     this.reserve = this.reserveMax;
@@ -63,7 +63,18 @@ export class Actor {
   chest(out = new THREE.Vector3()) { return out.set(this.pos.x, this.pos.y + 1.2, this.pos.z); }
   headPos(out = new THREE.Vector3()) { return out.set(this.pos.x, this.pos.y + 1.62, this.pos.z); }
 
+  // ULTRA upgrade of the main firearm (lasts until death)
+  activateUltra(ultraId) {
+    if (this.ultra || !ultraId || !WEAPON_BY_ID[ultraId]) return false;
+    this.ultra = true; this.ultraFrom = this.loadout[1];
+    this.loadout = { ...this.loadout, 1: ultraId };
+    this.weapons[1] = new WeaponState(WEAPON_BY_ID[ultraId], this.mods);
+    if (this.slot === 1) this.drawT = 0.35;
+    return true;
+  }
   respawn(pos, yaw = 0) {
+    if (this.ultra) { this.loadout = { ...this.loadout, 1: this.ultraFrom }; this.ultra = false; this.ultraFrom = null; }
+    this.aliveSince = null;
     this.pos.copy(pos); this.vel.set(0, 0, 0); this.yaw = yaw; this.pitch = 0;
     this.hp = BASE_HP; this.armor = 0; this.alive = true; this.spawnProtect = 1.5;
     this.fx = { burn: null, bleed: [], stun: 0, flash: 0, adrenaline: 0, scythe: 0, scytheCd: 0, emotional: 0 };
@@ -84,20 +95,21 @@ export class Actor {
   }
 
   // Shared movement physics. wish = desired horizontal direction (unit or zero, world space).
-  move(dt, world, wish, jumpPressed, climbIntent) {
+  // climbDir: horizontal direction the actor is pushing toward a climbable (null = not trying)
+  move(dt, world, wish, jumpPressed, climbDir) {
     const speed = BASE_SPEED * this.speedMult();
     const v = this.vel;
     const accel = this.onGround ? 80 : 14;
     const tx = wish.x * speed, tz = wish.z * speed;
     const dx = tx - v.x, dz = tz - v.z; const dl = Math.hypot(dx, dz); const maxd = accel * dt;
     if (dl <= maxd) { v.x = tx; v.z = tz; } else { v.x += (dx / dl) * maxd; v.z += (dz / dl) * maxd; }
-    // climbing (Fists only)
-    this.climbing = false;
-    if (climbIntent && this.held?.climb) {
-      const f = this.forward(new THREE.Vector3());
-      const c = world.climbableNear(this.pos, RADIUS, HEIGHT, f);
+    // climbing: anyone can use ladders/vines/rungs; Fists can scale any wall
+    const wasClimbing = this.climbing; this.climbing = false;
+    if (climbDir && climbDir.lengthSq() > 0.01 && this.fx.stun <= 0) {
+      const c = world.climbableNear(this.pos, RADIUS, HEIGHT, climbDir, !!this.held?.climb, wasClimbing);
       if (c) { this.climbing = true; v.y = CLIMB_SPEED; this.jumpsLeft = this.mods.doubleJump || 0; this.climbBox = c; }
     }
+    if (wasClimbing && !this.climbing && v.y > 2.2) v.y = 2.2;   // topped out: small pop over the lip instead of a launch
     if (jumpPressed && this.fx.stun <= 0) {
       if (this.onGround) { v.y = JUMP_IMPULSE; this.onGround = false; this.jumpsLeft = this.mods.doubleJump || 0; this.jumped = 1; }
       else if (this.jumpsLeft > 0) { v.y = JUMP_IMPULSE; this.jumpsLeft--; this.jumped = 2; }

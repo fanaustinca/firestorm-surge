@@ -20,6 +20,8 @@ const SHOT_SOUND = {
 };
 const TRACER_COLOR = { heavy_sniper: 0xff9a50, dmr: 0xffb070, lmg: 0xffd070, taser: 0x80e0ff };
 
+const bid = (d) => d.base || d.id;
+
 function jitter(dir, amount) {
   if (amount <= 0) return dir;
   const r = amount * Math.sqrt(Math.random()), th = Math.random() * Math.PI * 2;
@@ -68,7 +70,7 @@ export class Combat {
             ws.mag++; ws.reserve--; if (a === this.g.player) sfx.reload(1);
             if (ws.mag < d.mag && ws.reserve > 0) ws.reloading = d.reload; else ws.reloading = 0;
           } else { const need = d.mag - ws.mag; const take = Math.min(need, ws.reserve); ws.mag += take; if (ws.reserve !== Infinity) ws.reserve -= take; ws.reloading = 0; if (a === this.g.player) sfx.reload(2); }
-          if (d.id === 'rocket_launcher' || d.id === 'mortar' || d.id === 'crossbow') this.g.onRoundLoaded?.(a);
+          if (['rocket_launcher', 'mortar', 'crossbow'].includes(bid(d))) this.g.onRoundLoaded?.(a);
         }
         return;
       }
@@ -148,7 +150,7 @@ export class Combat {
     }
     this.g.onFired(a, d, muzzle, aim);
     if (d.emptyPing && ws.mag === 0 && a === this.g.player) setTimeout(() => sfx.ping(), 60);
-    const snd = SHOT_SOUND[d.id];
+    const snd = SHOT_SOUND[bid(d)];
     if (snd && !d.silent) sfx.shot(snd, a === this.g.player ? null : a.chest(V()), a === this.g.player ? 0.9 : 1);
     else if (d.silent) sfx.shot('bow', a === this.g.player ? null : a.chest(V()), 0.4);
     if (ws.mag === 0 && ws.reserve > 0 && !d.regen && !(d.cooldown && d.kind === 'projectile') && d.mode !== 'burst') {
@@ -162,18 +164,8 @@ export class Combat {
     const b = { owner: a, def: d, pos: origin.clone(), dir: dir.clone(), speed: d.vel, range: d.range, traveled: 0, dmg: d.dmg, head: d.head, remote, visible: true, color: TRACER_COLOR[d.id] || 0xffd890, thin: false };
     b.visOff = muzzle ? muzzle.clone().sub(origin) : V();
     b.vis = origin.clone().add(b.visOff);
-    // remote tracer culling: cull if beyond 45 m AND path never comes within 12 m of the camera
-    const cam = this.g.camera.position;
-    const dist = origin.distanceTo(cam);
-    if (a !== this.g.player) {
-      if (dist > 45) {
-        const toCam = _a.subVectors(cam, origin); const tproj = THREE.MathUtils.clamp(toCam.dot(dir), 0, d.range);
-        const closest = _b.copy(origin).addScaledVector(dir, tproj).distanceTo(cam);
-        if (closest > 12) b.visible = false;
-      }
-      if (d.thinTracers && dist > 20) { b.thin = true; if (this.shotCount % 3 !== 0) b.visible = false; }
-    }
-    if (d.kind === 'pellet' && Math.random() < 0.5) b.visible = false;
+    // every bullet gets a (cheap, line-segment) tracer — LMGs draw thinner/shorter ones
+    if (d.thinTracers) b.thin = true;
     this.bullets.push(b);
     return b;
   }
@@ -182,7 +174,7 @@ export class Combat {
   rayActors(o, dir, maxT, shooter, opts = {}) {
     let best = null;
     for (const t of this.g.actors) {
-      if (!t.alive || t === shooter) continue;
+      if (!t.alive || t === shooter || opts.skip?.has(t)) continue;
       if (shooter && !this.g.hostile(shooter, t)) continue;
       // broad phase
       _c.set(t.pos.x - o.x, 0, t.pos.z - o.z);
@@ -207,8 +199,13 @@ export class Combat {
       let dead = false;
       if (step >= remain) { step = remain; dead = true; }
       const wh = world.raycast(b.pos, b.dir, step, (x) => !x.noCollide);
-      const ah = b.remote ? null : this.rayActors(b.pos, b.dir, wh ? wh.t : step, b.owner);
-      if (ah) {
+      const ah = b.remote ? null : this.rayActors(b.pos, b.dir, wh ? wh.t : step, b.owner, b.hits ? { skip: b.hits } : {});
+      if (ah && b.def.pierce) {            // railgun: damage everything along the line, keep flying
+        const p = b.pos.clone().addScaledVector(b.dir, ah.t);
+        (b.hits ||= new Set()).add(ah.actor);
+        this.g.damage(ah.actor, ah.head ? b.head : b.dmg, { attacker: b.owner, weapon: b.def.id, head: ah.head, pos: p, dir: b.dir });
+        this.g.effects.blood(p); i++; continue;      // re-run this bullet next tick from the same spot
+      } else if (ah) {
         const p = b.pos.clone().addScaledVector(b.dir, ah.t);
         this.g.damage(ah.actor, ah.head ? b.head : b.dmg, { attacker: b.owner, weapon: b.def.id, head: ah.head, pos: p, dir: b.dir });
         this.g.effects.blood(p);
@@ -268,9 +265,19 @@ export class Combat {
           } else p.pos.addScaledVector(p.vel, dt);
         }
       }
+      // land mines: armed after a beat, triggered by an enemy stepping within range
+      if (!remove && p.kind === 'mine' && p.landed && !p.remote && p.t >= p.armAt) {
+        const cfg = p.def.mine;
+        for (const t of this.g.actors) {
+          if (!t.alive || !this.g.hostile(p.owner, t) || t.isTarget && false) continue;
+          const dx = t.pos.x - p.pos.x, dz = t.pos.z - p.pos.z;
+          if (dx * dx + dz * dz < cfg.trigger * cfg.trigger && Math.abs(t.pos.y - p.pos.y) < 0.9) { sfx.beep(p.pos); this.explode(p, p.pos.clone(), null); remove = true; break; }
+        }
+        if (!remove && p.led) p.led.visible = Math.floor(p.t * 2) % 2 === 0;
+      }
       // fuses
       if (!remove && p.t >= p.fuse && !p.remote) remove = this.detonate(p);
-      if (!remove && p.t > 12) remove = true;
+      if (!remove && p.t > (p.kind === 'mine' ? p.def.mine.life : 12)) remove = true;
       // slipper pickup
       if (!remove && p.kind === 'slipper' && p.landed && p.owner.alive && p.owner.pos.distanceTo(p.pos) < 1.4) {
         const ws = Object.values(p.owner.weapons).find((w) => w.id === 'slippers'); if (ws && ws.mag === 0) { ws.mag = 1; ws.recharge = 0; } remove = true;
@@ -311,7 +318,7 @@ export class Combat {
   projHitWorld(p, pos, n, box, dir) {
     switch (p.kind) {
       case 'rocket': case 'mortar_shell':
-        if (box?.kind === 'ceiling') { this.g.effects.sparks(pos, n, 14); if (p.owner === this.g.player) this.g.hud?.toast('Mortar blocked by the low ceiling!', 'warn'); if (p.ring) p.ring.visible = false; return true; }
+        if (box?.kind === 'ceiling') { this.g.effects.sparks(pos, n, 14); return true; }
         if (!p.remote) this.explode(p, pos, null); return true;
       case 'gl_shell': case 'frag': case 'smoke': case 'flash': {
         p.pos.copy(pos); const vn = p.vel.dot(n); p.vel.addScaledVector(n, -vn * 1.45); p.vel.multiplyScalar(0.55); p.bounces++;
@@ -321,6 +328,10 @@ export class Combat {
       }
       case 'molotov': if (!p.remote) this.igniteMolotov(p, pos); else this.g.effects.explosion(pos, 1.5, { small: true }); return true;
       case 'sticky': p.stuck = { world: true }; p.pos.copy(pos); p.vel.set(0, 0, 0); p.mesh.quaternion.setFromUnitVectors(UP, n); return false;
+      case 'mine':
+        if (n.y > 0.6) { p.pos.copy(pos).addScaledVector(n, -0.02); p.vel.set(0, 0, 0); p.landed = true; p.stuck = { world: true }; p.armAt = p.t + p.def.mine.arm; p.fuse = Infinity; p.mesh.rotation.set(0, Math.random() * 6, 0); p.mesh.position.copy(p.pos); p.led = p.mesh.getObjectByName('led'); sfx.thud(pos); }
+        else { p.vel.addScaledVector(n, -p.vel.dot(n) * 1.4).multiplyScalar(0.4); p.pos.copy(pos); }
+        return false;
       case 'slipper': if (n.y > 0.6) { p.pos.copy(pos); p.vel.set(0, 0, 0); p.landed = true; p.mesh.rotation.set(0, Math.random() * 6, 0); p.mesh.position.copy(pos); } else { p.vel.addScaledVector(n, -p.vel.dot(n) * 1.3).multiplyScalar(0.4); p.pos.copy(pos); } return false;
       default: // bolt, shuriken: stick in the wall briefly
         p.pos.copy(pos); p.vel.set(0, 0, 0); p.stuck = { world: true }; p.fuse = p.t + 4; p.mesh.position.copy(pos);
@@ -336,7 +347,7 @@ export class Combat {
       case 'smoke': this.makeSmoke(p.pos.clone(), p.def.smoke); this.g.onWorldEvent?.('smoke', { pos: p.pos.toArray() }); return true;
       case 'flash': this.flashbang(p); return true;
       case 'bolt': case 'shuriken': return true;
-      case 'slipper': return false;
+      case 'slipper': case 'mine': return false;
       default: return true;
     }
   }
@@ -361,6 +372,7 @@ export class Combat {
       if (p.kind === 'sticky' && p.stuck?.actor === t) dmg = d.dmg;
       if (p.kind === 'mortar_shell' && dist < 1.2) dmg = d.dmg;
       if (p.kind === 'frag' && dist < 1.0) dmg = d.dmg;
+      if (p.kind === 'mine' && dist < 1.3) dmg = d.dmg;
       if (t === p.owner) dmg *= 0.5;
       this.g.damage(t, dmg, { attacker: p.owner, weapon: d.id, pos, explosive: true });
       const kb = (d.knockback || 5) * f; const dir = _c.subVectors(t.pos, pos).setY(0).normalize();
@@ -438,9 +450,10 @@ export class Combat {
     ws.cooldown = d.interval; ws.mag -= d.ammoPerShot;
     const eye = a.eye(V()), dir = a.aimDir(V());
     const muzzle = this.g.muzzleWorld(a, V());
-    for (let i = 0; i < 5; i++) {
-      const v = jitter(dir, d.cone * 0.8).multiplyScalar(14 + Math.random() * 6).add(a.vel);
-      this.g.effects.flame(muzzle.clone().addScaledVector(dir, 0.1), v);
+    const side = _d.set(-dir.z, 0, dir.x).normalize();
+    for (const off of d.twin ? [-0.07, 0.07] : [0]) for (let i = 0; i < 5; i++) {
+      const v = jitter(dir, d.cone * 0.8).multiplyScalar((d.range > 12 ? 19 : 14) + Math.random() * 6).add(a.vel);
+      this.g.effects.flame(muzzle.clone().addScaledVector(dir, 0.1).addScaledVector(side, off), v);
     }
     sfx.shot('flame', a === this.g.player ? null : a.chest(V()), 0.7);
     this.g.onFired(a, d, muzzle, dir);
@@ -528,9 +541,9 @@ export class Combat {
       return;
     }
     if (!it.fire) {
-      const dir = a.aimDir(V()); const power = 17 * (1 + (a.mods.throw || 0));
-      const vel = dir.multiplyScalar(power).add(_a.set(0, 3.2, 0)).addScaledVector(a.vel, 0.5);
-      const fuse = d.cookable ? d.fuse - ws.cook : (d.impact ? 99 : d.fuse);
+      const dir = a.aimDir(V()); const power = (d.mine ? 7 : 17) * (1 + (a.mods.throw || 0));
+      const vel = dir.multiplyScalar(power).add(_a.set(0, d.mine ? 1.5 : 3.2, 0)).addScaledVector(a.vel, 0.5);
+      const fuse = d.cookable ? d.fuse - ws.cook : (d.impact || d.mine ? Infinity : d.fuse);
       this.spawnProj(a, d, d.proj, a.eye(V()).addScaledVector(a.aimDir(_b), 0.5), vel, { fuse, visFrom: this.g.muzzleWorld(a, V()) });
       ws.count--; ws.cook = -1; ws.cooldown = 0.6; a.stats.throws++;
       sfx.shot('throw', a === this.g.player ? null : a.chest(V()), 0.8);
@@ -572,14 +585,10 @@ export class Combat {
     ws.mag--; ws.cooldown = d.interval;
     const p = this.spawnProj(a, d, 'mortar_shell', start, vel, { visFrom: this.g.muzzleWorld(a, V()) });
     p.impactT = T; p.target = target;
-    // red ground warning ring 0.9 s before impact
-    const ringDelay = Math.max(0, T - d.warn);
-    this.g.after(ringDelay, () => { if (this.projs.includes(p)) { p.ring = this.g.effects.mortarRing(target, d.warn + 0.15, d.splash.radius); this.g.onWorldEvent?.('ring', { pos: target.toArray(), t: d.warn, r: d.splash.radius }); } });
-    p.ringAt = ringDelay;
+    // no warning ring — shells land unannounced
     sfx.shot('mortar', a === this.g.player ? null : a.chest(V()));
     a.recoil += 0.06;
     this.g.onFired(a, d, this.g.muzzleWorld(a, V()), dir);
-    if (this.world.ceiling < Infinity && a === this.g.player) this.g.hud?.toast('Low ceiling — mortars are blocked here!', 'warn');
     if (ws.mag === 0) this.g.after(0.3, () => { if (a.ws === ws && ws.mag === 0) this.startReload(a, ws); });
   }
 
@@ -597,7 +606,7 @@ export class Combat {
     const d = ws.def; ws.useT = -1; ws.usableCd = d.cooldown;
     if (d.heal) { a.hp = Math.min(BASE_HP, a.hp + d.heal); if (a === this.g.player) sfx.heal(); }
     if (d.ammo) {
-      for (const s in a.weapons) { const w = a.weapons[s]; if (w.reserveMax !== Infinity && w.def.slot <= 2) w.reserve = w.reserveMax; if (['rocket_launcher', 'mortar'].includes(w.id)) w.reserve += 1; if (w.def.kind === 'throwable') w.count += 1; }
+      for (const s in a.weapons) { const w = a.weapons[s]; if (w.reserveMax !== Infinity && w.def.slot <= 2) w.reserve = w.reserveMax; if (['rocket_launcher', 'mortar'].includes(bid(w.def))) w.reserve += 1; if (w.def.kind === 'throwable') w.count += 1; }
       if (a === this.g.player) sfx.reload(2);
     }
     if (d.armor) { a.armor = MAX_ARMOR; if (a === this.g.player) sfx.reload(1); }

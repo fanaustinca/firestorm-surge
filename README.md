@@ -1,18 +1,20 @@
 # 🔥 Firestorm Surge
 
-A fast 3D browser multiplayer FPS built with **Three.js**: 42 procedurally modelled weapons and gear items, 4 maps, 4 modes, zero-server P2P multiplayer (Trystero/WebRTC), and tactical bots that fill empty slots. No external art assets: every mesh, texture and sound is generated in code.
+A fast 3D browser multiplayer FPS built with **Three.js** (v2.0.0): 43 procedurally modelled weapons and gear items plus 10 ULTRA variants, 8 multi-level maps, 4 modes plus a Practice Range, zero-server P2P multiplayer (Trystero/WebRTC), and tactical bots that fill empty slots. No external art assets: every mesh, texture and sound is generated in code.
 
 **Play:** https://fanaustinca.github.io/firestorm-surge/
 
 ## Features
-- **6-slot loadout**: 10 main firearms, 8 secondaries, 9 melee/hand-held, 5 throwables, 5 usables, 5 wearables. The spec counts 39 items plus 3 freebies that come with slot 5/6 access, for 42 in total. Stats live in `src/data/weapons.js`.
-- **Movement:** 7 m/s base speed. Only the weapon in your hands sets your speed (0.80×–1.15×), and passive modifiers clamp to 0.75–1.35× (the Scythe burst can reach 1.55×). Jumps peak at exactly 1.25 m. Spring Boots add a double jump (about 2.5 m chained), and Fists climb ladders, vines, nets and cables at 5.5 m/s.
-- **Combat:** bullets are stepped raycasts (280–650 m/s, no tunnelling) drawn through one instanced tracer pool with remote-tracer culling. Also included: projectile rockets, bouncing grenade shells, mortars with a 0.9 s red warning ring (blocked by the Lab ceiling), a flamethrower that ignites smoke clouds, taser stuns, bleed and burn damage, deployable barricades, a cookable frag, a remote-detonated sticky bomb, flashbang whiteout, and smoke that Thermal Goggles see through.
-- **Slippers** deal **EMOTIONAL DAMAGE**: a 3D popup, a HUD popup and a 0.8 s screen wobble.
-- **Maps** (75 × 75 m): Cargo Yard, Desert Outpost, Abandoned City (vine-climb sniper windows), and Underground Lab (low ceiling).
-- **Modes:** Red vs. Blue (5v5 TDM), Free-For-All (8), 2v2 Wingman (Bo7), 1v1 Duel (Bo5).
-- **Multiplayer:** automatic matchmaking into `firestorm-${mode}-lobby-${n}`, 20 Hz state sync with lerp smoothing, and bots backfilled and split across peers by `botIndex % humans.length`.
-- **Progression:** 100–150 coins per match, weapon skins at 50/200/500 kills (Gold, Neon, Obsidian), 3 daily quests, a monthly rank badge, and holiday reskins (Pumpkin Launcher, Turkey Shooter, Ornament Shooter, Candy Cane Katana).
+- **Matchmaking:** you pick only a game mode. You join a room (P2P lobby, or an offline room filled with bots), and everyone votes on one of 4 candidate maps (with rendered previews) for 15 s. The host fills empty slots with bots, which vote too, then starts the winning map. After a match, **Back to room** starts a fresh vote.
+- **Practice Range:** pick any map. Steel targets (some sliding) are spread over every level. No bots, no timer, no coins.
+- **8 maps (60 × 60 m):** Cargo Yard, Desert Outpost, Abandoned City, Underground Lab, Frostbite Station, Jungle Temple, Neon Market and Refinery. Each has a large open centre surrounded or crossed by 3-story structures: floors at 0/3/6 m, walkable roofs at 9 m, interior switchback stairs, sky bridges, scaffolds, ladders, vines and rungs.
+- **Climbing:** anyone can climb ladders, vines and rungs. With **Fists** you can scale any wall.
+- **ULTRA variants:** every main firearm has a visibly upgraded ULTRA model: a spinning 8-rocket wheel, a quad-tube mortar battery, a twin-nozzle flamethrower with a huge tank, a 6-barrel rotary minigun, a piercing railgun, drum-fed rifles and more. You earn it in 1v1 after the first minute of a round (rounds are now 2 min), or in other modes by surviving 30 s. It lasts until you die. Preview it from the Loadout.
+- **Explosives:** rocket (7.5 m), grenade launcher (6.5 m) and mortar (11 m, no warning ring) have greatly increased damage and radius. A new **Land Mine** arms after 1 s and explodes when an enemy steps on it. Molotov fire shows flames only.
+- **Bots:** they can be beaten by design. They have a ~100° view cone, can't see through walls or smoke, go blind when flashbanged, react slowly and aim sloppily at first, swap between primary, secondary, melee, throwables and usables, and navigate all levels (stairs, ladders, drops) on a layered nav grid. Their rigs hold guns level and face where they aim.
+- **Feedback:** every bullet draws a cheap line tracer. Right-click aims down the sights of every gun, but only snipers zoom (lenses become see-through while aiming). An ELIMINATED banner shows a coin bounty per kill: +10, plus headshot, melee or explosive bonuses, and +10 for mine, grenade or Molotov kills. Callsigns and health bars appear over players and bots (enemies only while in sight), and the screen edges pulse red at low health.
+- **Progression:** coins per match plus kill bounties, kill-milestone skins (Gold, Neon, Obsidian), a **skin shop** (7 patterns, bought once, usable on any weapon), daily quests, holiday reskins, and a **permanent rank** saved locally that gains points on every win (1v1 +60, 2v2 +70, FFA +90, TDM +50): Recruit → Bronze → Silver → Gold → Platinum → Diamond → Master → Firestorm Legend.
+- **Audio:** procedural SFX and a procedural synthwave loop in the menu, shop and room.
 - **CrazyGames SDK v3:** rewarded-ad 1-match trials plus gameplay start/stop calls. Outside CrazyGames the ad is a mocked modal.
 
 ## Controls
@@ -24,10 +26,11 @@ DEV.help()
 DEV.giveCoins(5000); DEV.unlockAll()
 DEV.equip(1, 'mortar'); DEV.equip(3, 'slippers')
 DEV.setHealth(150, 50)
-DEV.loadMap('abandoned_city', 'ffa')        // cargo_yard | desert_outpost | abandoned_city | underground_lab
+DEV.loadMap('neon_market', 'ffa')           // DEV.maps() lists all 8; mode 'practice' = Practice Range
 DEV.spawnBot('blue', 'katana'); DEV.clearBots()
 DEV.noclip(); DEV.godMode()
-DEV.inspectGun('heavy_sniper')                // studio turntable; drag to orbit, Esc to exit
+DEV.inspectGun('rocket_launcher_ultra')       // studio turntable; drag to orbit, Esc to exit
+DEV.ultra()                                   // grant the ULTRA variant of your primary now
 ```
 
 ## Development
@@ -36,10 +39,16 @@ npm install
 npm run dev            # http://localhost:5190
 npm test               # build + full headless suite (screenshots in test-results/)
 GL=vulkan npm test     # GPU-accelerated local run
-npm run test:mp        # two headless browsers join a P2P lobby, sync and land a remote hit
+npm run test:mp        # two headless browsers share a room, vote, start the same map, sync and land a remote hit
 npm run test:flow      # plays full TDM/FFA/2v2/1v1 matches to the results screen
 ```
-The suite runs `vite preview`, launches headless Chrome (ANGLE/SwiftShader WebGL by default) and fails on any `pageerror` or `console.error`. It checks run speed (Fists 8.05 m/s, Mortar 5.60 m/s), jump height, the Spring Boots double jump, ladder climbing, Assault Rifle damage (20 body, 30 head), the Slippers EMOTIONAL DAMAGE popup, smoke blocking line of sight, and Thermal highlighting through smoke. It also captures gun-showcase, map and viewmodel screenshots.
+The suite (68 checks) runs `vite preview`, launches headless Chrome (ANGLE/SwiftShader WebGL by default) and fails on any `pageerror` or `console.error`. It covers:
+- **Movement and core combat:** run speeds, jump and double-jump heights, ladder and Fists-only wall climbing, Assault Rifle damage, Slippers, smoke and Thermal.
+- **New systems:** every map's levels, open-centre ratio, climb links and spawns; bots reaching upper floors; mines and kill bounties; ULTRA unlock and loss rules; buffed explosives; the mortar no-ring change.
+- **Bots:** view cone, flash and smoke blindness, rig gun orientation and weapon swapping.
+- **UI and feedback:** tracers on every pellet, ADS zoom rules, nameplates, the low-HP tint, Practice Range, the room vote, rank, skin shop and Ultra preview.
+
+It also captures screenshots for visual review.
 
 CI (`.github/workflows/deploy.yml`) builds, runs the quick suite, then deploys `dist/` to GitHub Pages.
 
@@ -47,9 +56,9 @@ CI (`.github/workflows/deploy.yml`) builds, runs the quick suite, then deploys `
 ```
 src/data/weapons.js        all item stats
 src/render/                procedural textures, gun/gear meshes, soldiers, icons
-src/world/                 collision world + 4 map builders + nav grid
+src/world/                 collision world + 8 map builders + layered nav grid
 src/game/                  game loop, actors, combat, bots, effects, viewmodel, match modes
-src/net/net.js             Trystero P2P layer
+src/net/                   Trystero P2P layer + mode room / map vote (lobby.js)
 src/ui/, src/meta/         HUD, menus/shop, profile/progression, ads
 tests/                     headless E2E, multiplayer, match-flow, gallery
 ```

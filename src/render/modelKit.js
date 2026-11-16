@@ -35,8 +35,12 @@ export function makeMaterials(skin = null) {
     hazard: std({ color: 0xffffff, map: tex('hazard'), metalness: 0.2, roughness: 0.5 }),
   };
   if (skin) applySkin(m, skin);
+  m.lens.userData.seeThru = true; m.glass.userData.seeThru = true;   // hidden while aiming down sights
   return m;
 }
+
+// [roughness, metalness, emissive] for the purchasable pattern skins
+const SHOP_SKIN_MATS = { woodland: [0.7, 0.1, 0], arctic: [0.6, 0.1, 0], crimson: [0.4, 0.3, 0], carbon: [0.3, 0.5, 0], toxic: [0.45, 0.2, 0.8], galaxy: [0.25, 0.5, 0.55], dragon: [0.35, 0.6, 0.25] };
 
 export function applySkin(m, skin) {
   const body = ['gunmetal', 'polymer', 'olive', 'tan', 'wood', 'white', 'darksteel'];
@@ -49,6 +53,19 @@ export function applySkin(m, skin) {
     const pink = std({ color: 0xff3df2, metalness: 0.3, roughness: 0.3, emissive: 0xff1fd8, emissiveIntensity: 1.4 });
     body.forEach((k, i) => (m[k] = i === 3 || i === 5 ? pink : dark));
     m.orange = m.cyan = std({ color: 0x3dfcff, emissive: 0x20f0ff, emissiveIntensity: 2 });
+  } else if (skin === 'ultra') {
+    const ub = std({ color: 0xffffff, map: tex('ultra'), metalness: 0.85, roughness: 0.22, emissive: 0xffffff, emissiveMap: tex('ultra'), emissiveIntensity: 0.9 });
+    const chrome = std({ color: 0x1a1c24, metalness: 1, roughness: 0.12 });
+    body.forEach((k, i) => (m[k] = i % 2 ? chrome : ub));
+    m.orange = m.cyan = std({ color: 0x3df0ff, emissive: 0x18e0ff, emissiveIntensity: 2.4 });
+    m.steel = std({ color: 0xff4ae8, metalness: 0.8, roughness: 0.2, emissive: 0xc010b0, emissiveIntensity: 1.2 });
+    m.hazard = m.orange; m.yellow = m.cyan;
+  } else if (SHOP_SKIN_MATS[skin]) {
+    const [rough, metal, emis] = SHOP_SKIN_MATS[skin];
+    const t = tex('skin_' + skin);
+    const a = std({ color: 0xffffff, map: t, metalness: metal, roughness: rough, ...(emis ? { emissive: 0xffffff, emissiveMap: t, emissiveIntensity: emis } : {}) });
+    const accent = std({ color: 0x1b1d21, metalness: 0.8, roughness: 0.35 });
+    body.forEach((k, i) => (m[k] = k === 'darksteel' ? accent : a));
   } else if (skin === 'obsidian') {
     const ob = std({ color: 0x0b0b0f, metalness: 0.9, roughness: 0.08 });
     const vein = std({ color: 0x5a1a8c, metalness: 0.5, roughness: 0.2, emissive: 0x7a22ff, emissiveIntensity: 1.6 });

@@ -23,21 +23,28 @@ try {
   page = await openGame(browser, srv.url, errors);
   await wait(400);
   await shot('00-menu');
-  check('Menu renders with DEV API', await page.evaluate(() => !!document.querySelector('#play') && typeof DEV.inspectGun === 'function'));
+  const menu = await page.evaluate(() => ({ play: !!document.querySelector('#play'), dev: typeof DEV.inspectGun === 'function', maps: document.querySelectorAll('[data-map]').length, modes: [...document.querySelectorAll('[data-mode]')].map((b) => b.dataset.mode), ver: document.querySelector('.logo .ver')?.textContent }));
+  check('Menu: mode-only selection (no map picker) + version tag', menu.play && menu.dev && menu.maps === 0 && menu.modes.includes('practice') && menu.modes.length === 5 && /^v\d+\.\d+\.\d+$/.test(menu.ver || ''), `${menu.modes.join(',')} · ${menu.ver}`);
   const SPEC_IDS = ['assault_rifle', 'ak47', 'dmr', 'rocket_launcher', 'burst_rifle', 'lmg', 'heavy_sniper', 'flamethrower', 'grenade_launcher', 'mortar',
     'pistol', 'smg', 'crossbow', 'burst_pistol', 'revolver', 'sawed_off', 'tactical_shotgun', 'taser',
     'fists', 'knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer', 'shurikens', 'slippers',
-    'frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb', 'medkit', 'ammo_pack', 'armor_plate', 'adrenaline', 'barricade',
+    'frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb', 'land_mine', 'medkit', 'ammo_pack', 'armor_plate', 'adrenaline', 'barricade',
     'tactical_gloves', 'spring_boots', 'bandolier', 'blast_vest', 'thermal_goggles'];
   const have = await page.evaluate(() => DEV.list().map((x) => x.split(': ')[1]));
   const missing = SPEC_IDS.filter((x) => !have.includes(x));
-  check('Every spec item exists (39 + 3 slot freebies)', missing.length === 0 && have.length === SPEC_IDS.length, missing.length ? 'missing ' + missing : `${have.length} entries`);
+  check('Every item exists (39 + 3 slot freebies + Land Mine)', missing.length === 0 && have.length === SPEC_IDS.length, missing.length ? 'missing ' + missing : `${have.length} entries`);
   const meshes = await page.evaluate((ids) => ids.map((id) => { try { DEV.inspectGun(id); let n = 0; DEV.game.studio.holder.traverse((o) => { if (o.isMesh) n++; }); return [id, n]; } catch (e) { return [id, -1, e.message]; } }), SPEC_IDS);
   const thin = meshes.filter(([, n]) => n < 5);
-  check('All 42 item meshes are multi-part (≥5 meshes each)', thin.length === 0, thin.length ? JSON.stringify(thin) : `min ${Math.min(...meshes.map((m) => m[1]))} meshes`);
+  check('All 43 item meshes are multi-part (≥5 meshes each)', thin.length === 0, thin.length ? JSON.stringify(thin) : `min ${Math.min(...meshes.map((m) => m[1]))} meshes`);
+  const ultras = await page.evaluate(() => DEV.ultras().map((id) => { DEV.inspectGun(id); let n = 0, glow = 0; DEV.game.studio.holder.traverse((o) => { if (o.isMesh) { n++; if (o.material.emissiveIntensity > 1.5) glow++; } }); return [id, n, glow]; }));
+  check('Every main firearm has a distinct ULTRA model (10, glowing parts)', ultras.length === 10 && ultras.every(([, n, gl]) => n >= 10 && gl >= 2), ultras.map(([i, n, gl]) => `${i.replace('_ultra', '')}:${n}/${gl}`).join(' '));
+  const spinners = await page.evaluate(() => ['rocket_launcher_ultra', 'lmg_ultra'].map((id) => { DEV.inspectGun(id); let rk = 0; const sp = DEV.game.studio.holder.getObjectByName('spin'); sp?.traverse((o) => { if (o.isMesh) rk++; }); return [id, !!sp, rk]; }));
+  check('Ultra rocket launcher has a spinning 8-tube wheel; Ultra LMG a rotary barrel group', spinners.every(([, sp]) => sp), JSON.stringify(spinners));
+  const ultraStats = await page.evaluate(() => { const W = DEV.game.constructor && null; void W; const by = (id) => DEV.game.player ? null : null; void by; return null; });
+  void ultraStats;
 
   // ───────── gun showcase ─────────
-  const guns = QUICK ? ['ak47', 'mortar'] : ['ak47', 'heavy_sniper', 'mortar', 'flamethrower', 'scythe', 'katana', 'slippers', 'rocket_launcher', 'grenade_launcher', 'lmg', 'crossbow', 'sledgehammer', 'fists'];
+  const guns = QUICK ? ['ak47', 'rocket_launcher_ultra'] : ['ak47', 'heavy_sniper', 'mortar', 'rocket_launcher', 'land_mine', 'rocket_launcher_ultra', 'mortar_ultra', 'flamethrower_ultra', 'lmg_ultra', 'heavy_sniper_ultra', 'assault_rifle_ultra', 'ak47_ultra', 'grenade_launcher_ultra', 'dmr_ultra', 'burst_rifle_ultra'];
   for (const id of guns) {
     const info = await page.evaluate((i) => { const r = DEV.inspectGun(i, { angle: 0.75, elev: 0.3 }); DEV.game.studio.auto = false; return r; }, id);
     await wait(150);
@@ -47,18 +54,39 @@ try {
   await page.evaluate(() => DEV.exitInspect());
 
   // ───────── maps ─────────
-  const maps = QUICK ? ['cargo_yard'] : ['cargo_yard', 'desert_outpost', 'abandoned_city', 'underground_lab'];
+  const ALL_MAPS = ['cargo_yard', 'desert_outpost', 'abandoned_city', 'underground_lab', 'frostbite', 'jungle_temple', 'neon_market', 'refinery'];
+  const maps = QUICK ? ['cargo_yard', 'jungle_temple'] : ALL_MAPS;
+  check('8 maps registered', (await page.evaluate(() => DEV.maps().length)) === 8);
   for (const m of maps) {
     await page.evaluate((id) => { DEV.loadMap(id, 'red_vs_blue'); DEV.game.timeScale = 0; DEV.advance(3.3); }, m);
     await wait(250);
     await shot(`map-${m}`);
-    const st = await page.evaluate(() => ({ s: DEV.state(), boxes: DEV.game.map.world.boxes.length, climb: DEV.game.map.world.boxes.filter((b) => b.climbable).length }));
-    check(`Map ${m} loads (colliders + climbables)`, st.s.map === m && st.boxes > 20 && st.climb > 0, `${st.boxes} colliders, ${st.climb} climbable`);
+    const st = await page.evaluate(() => {
+      const g = DEV.game, w = g.map.world, nav = g.map.nav; const hs = [...nav.nodeH]; const levels = new Set(hs.map((h) => Math.round(h / 3)));
+      // every spawn must stand on a walkable ground node; map must be ≤ 60 m wide
+      const badSpawn = [...g.map.spawns.red, ...g.map.spawns.blue, ...g.map.spawns.ffa].filter((p) => { const i = Math.floor(p.x + nav.half), j = Math.floor(p.z + nav.half); return !nav.cellNodes[i * nav.N + j].some((n) => nav.nodeH[n] < 0.6); });
+      // open space: fraction of ground cells with nothing overhead within 20 m of the centre
+      let open = 0, tot = 0; for (let i = 0; i < nav.N; i++) for (let j = 0; j < nav.N; j++) { const x = i - nav.half + 0.5, z = j - nav.half + 0.5; if (Math.hypot(x, z) > 20) continue; tot++; if (nav.cellNodes[i * nav.N + j].length) open++; }
+      return { boxes: w.boxes.length, climb: w.boxes.filter((b) => b.climbable).length, levels: [...levels].sort(), maxH: Math.max(...hs), links: nav.links.size, badSpawn: badSpawn.length, open: open / tot, bounds: w.bounds };
+    });
+    check(`Map ${m}: 3 stories + roofs, open centre, ladders linked`, st.maxH >= 6 && st.levels.length >= 3 && st.open > 0.55 && st.links >= 4 && st.badSpawn === 0 && st.bounds === 30, `${st.boxes} colliders · levels ${st.levels.join('/')} (top ${st.maxH} m) · ${Math.round(st.open * 100)}% open centre · ${st.links} climb links · ${st.badSpawn} bad spawns`);
   }
+  // bots must be able to path to and reach upper floors (stairs, ladders, bridges)
+  const reach = await page.evaluate(() => {
+    const out = []; const g = DEV.game;
+    for (const [id, from, to] of [['cargo_yard', [0, 0, 20], [0, 6, -0.5]], ['jungle_temple', [0, 0, 25], [0, 9, 2]], ['underground_lab', [5, 0, 0], [0, 6, -28]], ['refinery', [0, 0, 25], [-20, 8, -18]]]) {
+      DEV.loadMap(id, 'ffa'); g.timeScale = 0; DEV.clearBots(); DEV.advance(3.4);
+      const bid = DEV.spawnBot('blue', 'assault_rifle', { at: from }); const b = g.actors.find((a) => a.id === bid); const br = g.brains.get(b); const V = b.pos.constructor;
+      br.think = function () { this.goal = new V(...to); this.state = 'roam'; this.target = null; this.pathT -= 0.15; if (!this.path || this.pathT <= 0) { this.path = g.botFind(g.map.nav, b.pos, this.goal); this.pathT = 2; } };
+      let ok = false, t = 0; for (; t < 60 * 40 && !ok; t++) { g.fixedUpdate(1 / 60); ok = Math.hypot(b.pos.x - to[0], b.pos.z - to[2]) < 2 && Math.abs(b.pos.y - to[1]) < 0.6; }
+      out.push(`${id}→${to[1]}m:${ok ? (t / 60).toFixed(1) + 's' : 'FAIL'}`);
+    }
+    return out;
+  });
+  check('Bots navigate to upper floors (stairs / ladders / bridges)', reach.every((r) => !r.includes('FAIL')), reach.join(' '));
   if (!QUICK) {
-    // Abandoned City: look at a vine-covered facade
-    await page.evaluate(() => { DEV.loadMap('abandoned_city', 'red_vs_blue'); DEV.game.timeScale = 0; DEV.advance(3.3); DEV.clearBots(); DEV.teleport(-17.5, 0, -7.5, 0); DEV.look(Math.PI * 0.06, 0.32); DEV.advance(0.1); });
-    await wait(200); await shot('map-abandoned_city-vines');
+    await page.evaluate(() => { DEV.loadMap('abandoned_city', 'red_vs_blue'); DEV.game.timeScale = 0; DEV.advance(3.3); DEV.clearBots(); DEV.teleport(0, 6, 9, 0); DEV.look(0.9, -0.1); DEV.advance(0.1); });
+    await wait(200); await shot('map-abandoned_city-bridge');
   }
 
   // ───────── movement: active-hand weight ─────────
@@ -97,22 +125,23 @@ try {
   check('Spring Boots double jump reaches ≈ 2.4 m', jump.double >= 2.3 && jump.double <= 2.6, `${jump.double} m`);
   check('No double jump without Spring Boots', jump.noBootsDouble < 1.35, `${jump.noBootsDouble} m`);
 
-  // ───────── climbing (Fists + climbable ladder) ─────────
+  // ───────── climbing: everyone uses ladders; only Fists scale plain walls ─────────
   const climb = await page.evaluate(() => {
-    const g = DEV.game; const w = g.map.world; const lad = w.boxes.find((b) => b.climbable);
-    const cx = (lad.min[0] + lad.max[0]) / 2, cz = (lad.min[2] + lad.max[2]) / 2;
-    const thinX = lad.max[0] - lad.min[0] < lad.max[2] - lad.min[2];
-    // stand in front of the ladder (on its outward side) facing it
-    const outward = thinX ? [1, 0] : [0, 1];
-    const px = cx + outward[0] * 0.75, pz = cz + outward[1] * 0.75; const yaw = Math.atan2(outward[0], outward[1]);
-    DEV.equip(3, 'fists'); DEV.select(3); DEV.teleport(px, 0, pz, yaw); DEV.advance(0.1);
-    DEV.input({ forward: true }); let maxY = 0;
-    for (let i = 0; i < 150 && g.player.pos.y < lad.max[1] + 0.15; i++) { g.fixedUpdate(1 / 60); maxY = Math.max(maxY, g.player.pos.y); }
-    for (let i = 0; i < 10; i++) g.fixedUpdate(1 / 60);
-    DEV.input(null); DEV.advance(0.5);
-    return { top: lad.max[1], maxY: +maxY.toFixed(2), endY: +g.player.pos.y.toFixed(2) };
+    const g = DEV.game; const run = (slot, id, x, z, yaw, steps = 150) => {
+      DEV.equip(slot, id); DEV.select(slot); DEV.teleport(x, 0, z, yaw); DEV.advance(0.5); DEV.input({ forward: true }); let maxY = 0;
+      for (let i = 0; i < steps; i++) { g.fixedUpdate(1 / 60); maxY = Math.max(maxY, g.player.pos.y); if (g.player.pos.y > 5.9 && g.player.onGround) break; }
+      DEV.input(null); DEV.advance(0.5); return { maxY: +maxY.toFixed(2), endY: +g.player.pos.y.toFixed(2) };
+    };
+    // bridge ladder at (0, 1.15) facing +z → bridge deck at 6 m
+    const ladderKnife = run(3, 'knife', 0, 1.9, 0);
+    // plain office wall (east face of the west tower at x = -14 has a solid strip at z = 4.5)
+    const wallFists = run(3, 'fists', -13.3, 4.4, Math.PI / 2, 220);
+    const wallKnife = run(3, 'knife', -13.3, 4.4, Math.PI / 2, 220);
+    return { ladderKnife, wallFists, wallKnife };
   });
-  check('Fists climb ladders at 5.5 m/s onto the container top', climb.maxY >= climb.top - 0.1 && Math.abs(climb.endY - climb.top) < 0.1, `ladder top ${climb.top.toFixed(2)} m, reached ${climb.maxY} m, standing at ${climb.endY} m`);
+  check('Ladders work with any item (knife climbs onto the 6 m bridge)', climb.ladderKnife.endY > 5.9, JSON.stringify(climb.ladderKnife));
+  check('Fists can climb ANY wall', climb.wallFists.maxY > 3, JSON.stringify(climb.wallFists));
+  check('Knife cannot climb a plain wall', climb.wallKnife.maxY < 1.4, JSON.stringify(climb.wallKnife));
 
   // ───────── damage: assault rifle body/head ─────────
   const dmg = await page.evaluate(() => {
@@ -168,19 +197,143 @@ try {
     // ADS scope
     await page.evaluate(() => { DEV.equip(1, 'heavy_sniper'); DEV.select(1); DEV.input({ alt: true }); DEV.advance(0.5); });
     await shot('ads-heavy_sniper'); await page.evaluate(() => DEV.input(null));
-    // mortar warning ring
-    const ring = await page.evaluate(() => { const g = DEV.game; DEV.clearBots(); DEV.equip(1, 'mortar'); DEV.select(1); DEV.teleport(0, 0, 28, 0); DEV.look(0, -0.15); DEV.advance(0.5); DEV.input({ fire: true, firePressed: true }); g.fixedUpdate(1 / 60); DEV.input(null); let seen = 0; for (let i = 0; i < 240; i++) { g.fixedUpdate(1 / 60); if (g.effects.rings.length) { seen++; if (seen === 20) { g.renderFrame(1 / 60); break; } } } return seen; });
-    await shot('mortar-ring');
-    check('Mortar shows red warning ring before impact', ring > 0);
+    // mortar: no warning ring any more, and a much bigger blast
+    const mort = await page.evaluate(() => { const g = DEV.game; DEV.clearBots(); DEV.equip(1, 'mortar'); DEV.select(1); DEV.teleport(0, 0, 25, 0); DEV.look(0, -0.15); DEV.advance(0.5); DEV.input({ fire: true, firePressed: true }); g.fixedUpdate(1 / 60); DEV.input(null); let rings = 0, boom = false; const n0 = g.combat.projs.length; for (let i = 0; i < 240; i++) { g.fixedUpdate(1 / 60); rings = Math.max(rings, g.effects.rings.length); if (n0 && !g.combat.projs.length) { boom = true; break; } } return { rings, boom }; });
+    check('Mortar fires with NO warning ring', mort.rings === 0 && mort.boom, JSON.stringify(mort));
     // a live bot match for a few seconds — bots must fight without errors
     const live = await page.evaluate(() => { DEV.loadMap('desert_outpost', 'ffa'); DEV.game.timeScale = 0; DEV.godMode(); DEV.advance(3.3); DEV.advance(20); const s = DEV.game.actors.map((a) => a.stats.kills).reduce((x, y) => x + y, 0); return { kills: s, actors: DEV.game.actors.length }; });
     await shot('ffa-desert-20s');
     check('Bots fight in a 20 s FFA simulation', live.kills > 0, `${live.kills} kills among ${live.actors} players`);
   }
+
+  // ───────── explosives: severely buffed damage + radius ─────────
+  const boom = await page.evaluate(() => {
+    const g = DEV.game; DEV.loadMap('refinery', 'red_vs_blue'); g.timeScale = 0; DEV.advance(3.3); DEV.clearBots(); DEV.godMode();
+    const out = {};
+    for (const [w, dist] of [['rocket_launcher', 6.5], ['grenade_launcher', 5.5], ['mortar', 9.5]]) {
+      const id = DEV.spawnBot('blue', 'assault_rifle', { frozen: true, at: [dist, 0, 20] }); const bot = g.actors.find((a) => a.id === id); bot.hp = 150; bot.spawnProtect = 0;
+      const p = { id: 'test-' + w, kind: 'test', def: DEV.weapon(w), owner: g.player };
+      g.combat.explode(p, new bot.pos.constructor(0, 0.05, 20), null);
+      out[w] = { dist, dmg: 150 - bot.hp, radius: p.def.splash.radius }; g.removeActor(bot);
+    }
+    return out;
+  });
+  check('Rocket / GL / mortar splash hugely buffed (damage well outside the old radius)', boom.rocket_launcher.dmg >= 40 && boom.grenade_launcher.dmg >= 40 && boom.mortar.dmg >= 60 && boom.rocket_launcher.radius >= 7 && boom.mortar.radius >= 10, JSON.stringify(boom));
+
+  // ───────── land mine ─────────
+  const mine = await page.evaluate(() => {
+    const g = DEV.game; DEV.clearBots(); DEV.equip(4, 'land_mine'); DEV.select(4); DEV.teleport(0, 0, 22, 0); DEV.look(0, -0.6); DEV.advance(0.5);
+    DEV.input({ fire: true, firePressed: true }); g.fixedUpdate(1 / 60); DEV.input(null); DEV.advance(2);
+    const m = g.combat.projs.find((p) => p.kind === 'mine'); if (!m) return { placed: false };
+    const id = DEV.spawnBot('blue', 'assault_rifle', { frozen: true, at: [m.pos.x + 4, 0, m.pos.z] }); const bot = g.actors.find((a) => a.id === id); bot.spawnProtect = 0;
+    DEV.advance(1.5); const idle = bot.hp; const coins0 = DEV.profile.coins;
+    bot.pos.set(m.pos.x + 0.3, 0, m.pos.z); DEV.advance(0.2);
+    return { placed: true, landed: m.landed, idle, hp: bot.hp, alive: bot.alive, gone: !g.combat.projs.includes(m), banner: document.querySelector('#killban .kb')?.textContent || '', coins: DEV.profile.coins - coins0 };
+  });
+  check('Land mine lands, waits, then explodes when an enemy steps on it', mine.placed && mine.landed && mine.idle === 150 && !mine.alive && mine.gone, JSON.stringify({ ...mine, banner: undefined }));
+  check('Kill banner + coin bounty shown for a mine kill', /ELIMINATED/.test(mine.banner) && /MINE KILL/.test(mine.banner) && mine.coins >= 20, `${mine.banner} (+${mine.coins})`);
+  await shot('mine-kill-banner');
+
+  // ───────── ULTRA unlock rules ─────────
+  const ultra = await page.evaluate(() => {
+    const g = DEV.game; const res = {};
+    DEV.loadMap('cargo_yard', 'ffa'); g.timeScale = 0; DEV.clearBots(); DEV.godMode(); DEV.equip(1, 'rocket_launcher'); DEV.select(1); DEV.advance(3.3);
+    DEV.advance(25); res.ffa25 = g.player.loadout[1]; DEV.advance(6); res.ffa31 = g.player.loadout[1]; res.mag = g.player.weapons[1].mag;
+    g.player.hp = 1; g.god = false; g.damage(g.player, 50, {}); DEV.advance(3.5); res.afterDeath = g.player.loadout[1]; g.god = true;
+    DEV.loadMap('cargo_yard', '1v1'); g.timeScale = 0; DEV.equip(1, 'lmg'); DEV.select(1); for (const b of g.brains.values()) b.frozen = true; DEV.advance(3.3);
+    res.roundTime = g.match.mode.roundTime; DEV.advance(45); res.duel45 = g.player.loadout[1]; DEV.advance(16); res.duel61 = g.player.loadout[1];
+    g.renderFrame(1 / 60);
+    return res;
+  });
+  await shot('ultra-lmg-viewmodel');
+  check('FFA/teams: ULTRA after surviving 30 s (rocket wheel holds 8)', ultra.ffa25 === 'rocket_launcher' && ultra.ffa31 === 'rocket_launcher_ultra' && ultra.mag === 8, JSON.stringify(ultra));
+  check('ULTRA is lost on death', ultra.afterDeath === 'rocket_launcher');
+  check('1v1: 2-minute rounds, ULTRA after the first minute', ultra.roundTime === 120 && ultra.duel45 === 'lmg' && ultra.duel61 === 'lmg_ultra');
+
+  // ───────── bots: view cone, walls, smoke, flash, facing, weapon handling ─────────
+  const bots = await page.evaluate(() => {
+    const g = DEV.game; DEV.loadMap('refinery', 'red_vs_blue'); g.timeScale = 0; DEV.advance(3.3); DEV.clearBots(); DEV.godMode();
+    DEV.teleport(0, 0, 20, 0); DEV.advance(0.1);
+    const id = DEV.spawnBot('blue', 'assault_rifle', { frozen: true, at: [0, 0, 10] }); const bot = g.actors.find((a) => a.id === id); const br = g.brains.get(bot);
+    const r = {};
+    bot.yaw = 0; r.facingAway = br.canSee(g.player);           // bot looks toward -z, player is at +z
+    bot.yaw = Math.PI; r.facing = br.canSee(g.player);
+    bot.fx.flash = 1.5; r.flashed = br.canSee(g.player); bot.fx.flash = 0;
+    DEV.throwAt(0, 0, 15, 'smoke_grenade'); DEV.advance(2.2); r.smoke = br.canSee(g.player);
+    g.combat.clouds.length = 0;
+    DEV.teleport(-5.5, 0, 0, 0); bot.pos.set(-5.5, 0, -6); DEV.advance(0.05); bot.yaw = Math.PI; r.wall = br.canSee(g.player); // pipe stack / scaffold between? fallback below
+    // weapon held level & pointing where the bot aims (rig muzzle ahead of chest along aim)
+    bot.pos.set(0, 0, 10); bot.yaw = Math.PI; bot.pitch = 0; g.renderFrame(1 / 60); g.renderFrame(1 / 60);
+    const mz = g.muzzleWorld(bot, bot.pos.clone()); const ch = bot.chest(bot.pos.clone()); const dir = mz.clone().sub(ch); const aim = bot.aimDir(bot.pos.clone());
+    r.gunDot = +(dir.clone().setY(0).normalize().dot(aim.clone().setY(0).normalize())).toFixed(2); r.gunDy = +(mz.y - ch.y).toFixed(2); r.gunReach = +dir.length().toFixed(2);
+    return r;
+  });
+  check('Bots have a view cone (can\'t see behind them)', !bots.facingAway && bots.facing, JSON.stringify(bots));
+  check('Flashbanged bots are blind; smoke blocks bot vision', !bots.flashed && !bots.smoke);
+  check('Bot rigs hold the gun level, pointing where they aim', bots.gunDot > 0.9 && bots.gunDy > -0.25 && bots.gunReach > 0.5, `dot ${bots.gunDot}, muzzle Δy ${bots.gunDy} m, reach ${bots.gunReach} m`);
+  const sw = await page.evaluate(() => {
+    const g = DEV.game; DEV.loadMap('abandoned_city', 'ffa'); g.timeScale = 0; DEV.godMode(); DEV.advance(3.3);
+    const seen = new Map(); for (let i = 0; i < 60 * 40; i++) { g.fixedUpdate(1 / 60); for (const a of g.actors) if (a.isBot) { if (!seen.has(a)) seen.set(a, new Set()); seen.get(a).add(a.slot); } }
+    const multi = [...seen.values()].filter((s) => s.size > 1).length; const kills = g.actors.reduce((s, a) => s + a.stats.kills, 0); g.renderFrame(1 / 60);
+    return { multi, bots: seen.size, kills, tracers: g.effects.tracerCount };
+  });
+  await shot('ffa-city-40s');
+  check('Bots switch weapons during a fight', sw.multi >= 3, `${sw.multi}/${sw.bots} bots used more than one slot · ${sw.kills} kills`);
+
+  // ───────── tracers: every bullet streak drawn (cheap line segments) ─────────
+  const tr = await page.evaluate(() => { const g = DEV.game; DEV.loadMap('cargo_yard', 'red_vs_blue'); g.timeScale = 0; DEV.advance(3.3); DEV.clearBots(); DEV.equip(2, 'tactical_shotgun'); DEV.select(2); DEV.teleport(0, 0, 15, 0); DEV.look(0, 0.25); DEV.advance(0.5); DEV.input({ fire: true, firePressed: true }); g.fixedUpdate(1 / 60); DEV.input(null); g.renderFrame(1 / 60); return { bullets: g.combat.bullets.length, drawn: g.effects.tracerCount }; });
+  check('Every bullet (all 8 shotgun pellets) gets a tracer', tr.bullets === 8 && tr.drawn === tr.bullets, JSON.stringify(tr));
+
+  // ───────── ADS: all guns aim down sights, only snipers zoom ─────────
+  const ads = await page.evaluate(() => { const g = DEV.game; const out = {}; for (const [s, w] of [[1, 'ak47'], [1, 'heavy_sniper']]) { DEV.equip(s, w); DEV.select(s); DEV.advance(0.6); const f0 = g.camera.fov; DEV.input({ alt: true }); DEV.advance(0.6); g.renderFrame(1 / 60); out[w] = { ads: g.vm.adsK > 0.9, fov0: Math.round(f0), fov: Math.round(g.camera.fov) }; DEV.input(null); DEV.advance(0.4); } return out; });
+  check('Right-click aims every gun; only snipers zoom', ads.ak47.ads && ads.ak47.fov === ads.ak47.fov0 && ads.heavy_sniper.ads && ads.heavy_sniper.fov < ads.heavy_sniper.fov0 / 2, JSON.stringify(ads));
+
+  // ───────── molotov: flames only (no red ground disc) ─────────
+  const molo = await page.evaluate(() => { const g = DEV.game; const pr = DEV.throwAt(0, 0, 18, 'molotov'); void pr; DEV.advance(1.2); const pool = g.effects.pools[0]; return { pools: g.effects.pools.length, disc: !!pool?.mesh.isMesh }; });
+  check('Molotov fire shows flames only (no ring/disc)', molo.pools >= 1 && !molo.disc, JSON.stringify(molo));
+
+  // ───────── nameplates + low HP vignette ─────────
+  const plates = await page.evaluate(() => { const g = DEV.game; DEV.loadMap('cargo_yard', 'red_vs_blue'); g.timeScale = 0; DEV.advance(3.3); DEV.clearBots(); DEV.teleport(0, 0, 20, 0); const id = DEV.spawnBot('blue', 'assault_rifle', { frozen: true, at: [0, 0, 12] }); const b = g.actors.find((a) => a.id === id); b.hp = 70; DEV.advance(0.4); g.renderFrame(1 / 60); g.renderFrame(1 / 60); const vis = b.plate?.visible; g.player.hp = 30; g.hud.update(0.016); const low = +document.getElementById('ov-low').style.opacity; return { vis, key: b.plate?.userData.key, low }; });
+  await shot('nameplate-lowhp');
+  check('Callsign + health bar shown over enemies in sight', plates.vis && /\|70\|/.test(plates.key), plates.key);
+  check('Screen edges tint red at low health', plates.low > 0.5, `opacity ${plates.low}`);
+
+  // ───────── practice range ─────────
+  const prac = await page.evaluate(() => { const g = DEV.game; DEV.loadMap('jungle_temple', 'practice'); g.timeScale = 0; DEV.advance(3.3); const t = g.actors.filter((a) => a.isTarget); const bots = g.actors.filter((a) => a.isBot && !a.isTarget).length; const levels = new Set(t.map((a) => Math.round(a.home.y / 3))).size; const c0 = DEV.profile.coins; const tg = t[0]; g.damage(tg, 999, { attacker: g.player, weapon: 'ak47' }); DEV.advance(2); g.renderFrame(1 / 60); return { targets: t.length, bots, levels, respawned: tg.alive, coins: DEV.profile.coins - c0, timer: document.getElementById('timer').textContent }; });
+  await shot('practice-range');
+  check('Practice Range: targets on several levels, no bots, targets respawn, no coins', prac.targets >= 10 && prac.bots === 0 && prac.levels >= 2 && prac.respawned && prac.coins === 0, JSON.stringify(prac));
+
+  // ───────── room + map vote (offline room, bots vote) ─────────
+  const lob = await page.evaluate(async () => {
+    const g = DEV.game; window.__voteSecs = 14; g.state = 'menu'; g.clearActors(); g.ui.sel.online = false; g.ui.sel.mode = '2v2'; g.ui.showMenu();
+    document.querySelector('#play').click();
+    await new Promise((r) => setTimeout(r, 900));
+    const cards = [...document.querySelectorAll('[data-vote]')].map((b) => b.dataset.vote); const players = document.querySelectorAll('#lb-people li').length;
+    document.querySelector('[data-vote]').click(); const voted = cards[0];
+    let thumbs = 0; const t0 = performance.now();
+    while (performance.now() - t0 < 11000) { await new Promise((r) => setTimeout(r, 300)); thumbs = [...document.querySelectorAll('img[data-thumb]')].filter((i) => i.src.startsWith('data:image')).length; if (thumbs >= 4) break; }
+    return { cards, players, voted, thumbs };
+  });
+  await shot('lobby-vote');
+  const lob2 = await page.evaluate(async () => { const t0 = performance.now(); while (DEV.game.state !== 'playing' && performance.now() - t0 < 16000) await new Promise((r) => setTimeout(r, 200)); return { state: DEV.game.state, map: DEV.game.mapId, mode: DEV.game.modeId, actors: DEV.game.actors.length }; });
+  check('Room shows 4 candidate maps with preview images + full player list', lob.cards.length === 4 && lob.players === 4 && lob.thumbs >= 2, JSON.stringify(lob));
+  check('Vote ends → match starts on a voted map', lob2.state === 'playing' && lob.cards.includes(lob2.map) && lob2.mode === '2v2' && lob2.actors === 4, JSON.stringify(lob2));
+
+  // ───────── rank: wins add permanent, locally stored points ─────────
+  const rank = await page.evaluate(() => { const g = DEV.game; const p0 = DEV.profile.rank().points; g.match.rounds.red = 4; g.match.rounds.blue = 0; g.match.end(); const p1 = DEV.profile.rank().points; return { p0, p1, stored: JSON.parse(localStorage.getItem('firestorm-surge-profile-v1')).rankPts }; });
+  check('Winning adds rank points (stored locally)', rank.p1 - rank.p0 === 70 && rank.stored === rank.p1, JSON.stringify(rank));
+  await wait(400); await shot('results-rank');
+
   await page.evaluate(() => { DEV.game.timeScale = 1; });
   // loadout UI
-  await page.evaluate(() => { DEV.game.state = 'menu'; DEV.game.ui.loSlot = 1; DEV.game.ui.loItem = 'heavy_sniper'; DEV.game.ui.renderLoadout(); });
+  await page.evaluate(() => { DEV.game.state = 'menu'; DEV.game.ui.loSlot = 1; DEV.game.ui.loItem = 'rocket_launcher'; DEV.game.ui.renderLoadout(); });
   await wait(300); await shot('loadout');
+  const lo = await page.evaluate(() => ({ ultraBtn: !!document.querySelector('#inspect-ultra'), shopSkins: document.querySelectorAll('.skin.shop').length }));
+  check('Loadout shows the ULTRA variant + a skin shop', lo.ultraBtn && lo.shopSkins === 7, JSON.stringify(lo));
+  await page.evaluate(() => document.querySelector('#inspect-ultra').click()); await wait(300); await shot('loadout-ultra-inspect');
+  const bought = await page.evaluate(() => { DEV.giveCoins(2000); DEV.profile.d.skinsOwned = []; DEV.game.exitInspect(true); DEV.game.ui.loItem = 'ak47'; DEV.game.ui.renderLoadout(); const b = document.querySelector('[data-buyskin="galaxy"]'); b.click(); return { owns: DEV.profile.ownsSkin('galaxy'), sel: DEV.profile.skinFor('ak47') }; });
+  check('Shop skins can be bought and applied', bought.owns && bought.sel === 'galaxy', JSON.stringify(bought));
+  await wait(200); await shot('loadout-galaxy');
 } catch (e) {
   check('Suite ran without exceptions', false, e.stack || String(e));
 } finally {

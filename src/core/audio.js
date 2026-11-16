@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 
 class Sfx {
-  constructor() { this.ctx = null; this.master = null; this.volume = 0.7; this.listener = { pos: new THREE.Vector3(), right: new THREE.Vector3(1, 0, 0) }; this.noiseBuf = null; this.last = {}; }
+  constructor() { this.wantMusic = false; this.mus = null; this.ctx = null; this.master = null; this.volume = 0.7; this.listener = { pos: new THREE.Vector3(), right: new THREE.Vector3(1, 0, 0) }; this.noiseBuf = null; this.last = {}; }
   init() {
     if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
     try {
@@ -13,7 +13,50 @@ class Sfx {
       const len = this.ctx.sampleRate * 1.5; this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
       const d = this.noiseBuf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     } catch { this.ctx = null; }
+    if (this.ctx && this.wantMusic) this._startMusic();
   }
+
+  // ───── menu / shop / lobby background music (procedural synthwave loop: Am–F–C–G @ 112 BPM) ─────
+  music(on) {
+    this.wantMusic = on;
+    if (!this.ctx) return;
+    if (on && !this.mus) this._startMusic();
+    if (!on && this.mus) this._stopMusic();
+  }
+  _startMusic() {
+    const ctx = this.ctx; const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.32, ctx.currentTime + 1.5);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 5200; g.connect(lp); lp.connect(this.master);
+    this.mus = { g, step: 0, next: ctx.currentTime + 0.12 };
+    this.mus.timer = setInterval(() => this._sched(), 40);
+  }
+  _stopMusic() {
+    const m = this.mus; this.mus = null; const t = this.ctx.currentTime;
+    m.g.gain.cancelScheduledValues(t); m.g.gain.setValueAtTime(Math.max(0.0001, m.g.gain.value), t); m.g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+    clearInterval(m.timer); setTimeout(() => m.g.disconnect(), 800);
+  }
+  _sched() {
+    const m = this.mus; if (!m || this.ctx.state !== 'running') return;
+    const sixteenth = 60 / 112 / 4;
+    while (m.next < this.ctx.currentTime + 0.25) { this._musStep(m.step, m.next, sixteenth); m.step++; m.next += sixteenth; }
+  }
+  _note(dest, t, dur, f, type, gain, attack = 0.01, filt = 0) {
+    const ctx = this.ctx; const o = ctx.createOscillator(); o.type = type; o.frequency.value = f;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    if (filt) { const f2 = ctx.createBiquadFilter(); f2.type = 'lowpass'; f2.frequency.setValueAtTime(filt * 3, t); f2.frequency.exponentialRampToValueAtTime(filt, t + dur); o.connect(f2); f2.connect(g); } else o.connect(g);
+    g.connect(dest); o.start(t); o.stop(t + dur + 0.05);
+  }
+  _musStep(i, t, sx) {
+    const d = this.mus.g; const s = i % 16, bar = Math.floor(i / 16) % 4;
+    const CH = [[220, 261.63, 329.63], [174.61, 220, 261.63], [261.63, 329.63, 392], [196, 246.94, 293.66]][bar];
+    const root = CH[0] / 2;
+    if (s === 0 || s === 8 || s === 10) this._tone(d, t, 0.22, 140, 42, 'sine', 0.9);
+    if (s === 4 || s === 12) this._noise(d, t, 0.16, 2400, 900, 0.8, 'bandpass', 0.38);
+    if (s % 2 === 1) this._noise(d, t, 0.04, 9000, 7000, 1, 'highpass', 0.12);
+    if ([0, 3, 6, 8, 11, 14].includes(s)) this._note(d, t, sx * 1.8, root, 'sawtooth', 0.22, 0.005, 420);
+    if (s === 0) for (const f of CH) this._note(d, t, sx * 15, f, 'triangle', 0.06, 0.4);
+    if (s % 2 === 0) { const f = CH[(s / 2) % 3] * (s % 8 < 4 ? 2 : 1); this._note(d, t, sx * 1.4, f, 'square', 0.035, 0.005, 2600); }
+  }
+  ultra() { if (!this.ctx) return; const { g } = this._out(null, 0.6); const t = this.ctx.currentTime; for (let i = 0; i < 4; i++) this._tone(g, t + i * 0.07, 0.25, 440 * 2 ** (i / 3), 880 * 2 ** (i / 3), 'sawtooth', 0.18); this._noise(g, t, 0.6, 400, 6000, 2, 'bandpass', 0.4); }
   setVolume(v) { this.volume = v; if (this.master) this.master.gain.value = v; }
   setListener(pos, right) { this.listener.pos.copy(pos); this.listener.right.copy(right); }
   _out(pos, vol = 1, range = 60) {

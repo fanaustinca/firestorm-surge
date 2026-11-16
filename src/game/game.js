@@ -8,15 +8,17 @@ import { Effects } from './effects.js';
 import { ViewModel } from './viewmodel.js';
 import { Match, MODES } from './match.js';
 import { BotBrain, botLoadout, botName } from './bots.js';
-import { buildSoldier, poseSoldier, attachWeapon, buildItem, findMarker, teamColor } from '../render/models.js';
+import { buildSoldier, poseSoldier, attachWeapon, buildItem, findMarker, teamColor, buildTarget } from '../render/models.js';
 import { tex } from '../render/textures.js';
+import { makePlate, drawPlate } from '../render/nameplate.js';
 import { Input } from '../core/input.js';
 import { sfx } from '../core/audio.js';
 import { Hud } from '../ui/hud.js';
 import { Net } from '../net/net.js';
 import { profile } from '../meta/profile.js';
 import { gameplay } from '../meta/ads.js';
-import { WEAPON_BY_ID, BASE_HP, isExplosive } from '../data/weapons.js';
+import { WEAPON_BY_ID, BASE_HP, isExplosive, ULTRA_OF, baseId } from '../data/weapons.js';
+import { randomNode, findPath } from './bots.js';
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const STEP = 1 / 60;
@@ -54,7 +56,7 @@ export class Game {
     this.playerName = profile.d.name; this.autoPause = true; this.thermalMat = new THREE.MeshBasicMaterial({ color: 0xff7a10, fog: false, toneMapped: false });
     this.thermalHiMat = new THREE.MeshBasicMaterial({ color: 0xffe060, fog: false, toneMapped: false });
     this.look = { dx: 0, dy: 0 };
-    this.studio = null; this.last = performance.now();
+    this.studio = null; this.last = performance.now(); this.botFind = findPath;
     addEventListener('resize', () => this.resize());
     this.input.on('key', (k) => this.onKey(k));
     this.input.on('lock', (l) => { if (!l && this.state === 'playing' && this.autoPause && !this.match?.ended) this.ui?.pause(true); });
@@ -77,15 +79,15 @@ export class Game {
     this.hemi.color.set(e.hemi[0]); this.hemi.groundColor.set(e.hemi[1]); this.hemi.intensity = e.hemi[2];
     this.scene.fog = new THREE.Fog(e.fog[0], e.fog[1], e.fog[2]); this.renderer.toneMappingExposure = e.exposure;
     this.sky.visible = !e.indoor; this.scene.background = new THREE.Color(e.fog[0]);
-    const sky = { day: [0x2e6fb5, 0xd9e6ee], desert: [0x3a7ac8, 0xf0dcb8], dusk: [0x4a5a80, 0xf0b890] }[e.sky];
-    if (sky) this.sky.material.color.set(0xffffff), (this.sky.material.color = new THREE.Color(e.sky === 'dusk' ? 0xffd6c0 : e.sky === 'desert' ? 0xfff2e0 : 0xffffff));
+    this.sky.material.color.set({ day: 0xffffff, desert: 0xfff2e0, dusk: 0xffd6c0, night: 0x202840, snow: 0xe8f0ff, jungle: 0xd8f0d0 }[e.sky] ?? 0xffffff);
     this.scene.environmentIntensity = e.indoor ? 0.3 : 0.45;
   }
 
   async startMatch({ mapId = 'cargo_yard', modeId = 'red_vs_blue', online = false } = {}) {
     this.exitInspect();
     this.clearActors(); this.combat.reset(); this.effects.clear(); this.queue = [];
-    if (this.net.connected) await this.net.leave();
+    if (!online && this.net.connected) await this.net.leave();
+    this.killCoins = 0; this.killCount = 0;
     this.loadMap(mapId); this.mapId = mapId; this.modeId = modeId;
     this.match = new Match(this, modeId);
     const loadout = profile.effectiveLoadout();
@@ -96,12 +98,29 @@ export class Game {
     this.rebuildRoster();
     for (const a of this.actors) this.respawnActor(a);
     this.vm.setWeapon(p.loadout[p.slot], p.skins[p.loadout[p.slot]]);
+    if (MODES[modeId].practice) this.spawnTargets();
     this.state = 'playing'; this.paused = false; this.hud.show(true); this.hud.slotsKey = '';
     this.hud.center(`<b>${MODES[modeId].name.toUpperCase()}</b><br>${this.map.info.name}`, 2.6);
-    gameplay.start();
-    if (online) {
+    gameplay.start(); this.onMatchStart?.();
+    if (online && !this.net.connected) {
       this.net.connect(modeId, MODES[modeId].size, (s) => this.hud.toast(s)).then((ok) => { if (ok) this.rebuildRoster(); });
     }
+  }
+
+  // Practice Range: static + sliding steel targets spread over every level of the map
+  spawnTargets() {
+    let seed = 11; const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
+    const pts = [];
+    for (let tries = 0; pts.length < 14 && tries < 400; tries++) {
+      const p = randomNode(this.map.nav, rnd);
+      if (p.distanceTo(this.player.pos) < 8 || pts.some((q) => q.distanceTo(p) < 5)) continue;
+      pts.push(p);
+    }
+    pts.forEach((p, i) => {
+      const a = new Actor({ id: 'target-' + i, name: 'Target ' + (i + 1), team: 'ffa', isBot: true });
+      a.isTarget = true; a.home = p.clone(); a.slide = i % 3 === 0 ? 2.5 : 0; a.botIndex = 100 + i;
+      a.setLoadout({}); a.respawn(p, 0); a.spawnProtect = 0; this.actors.push(a);
+    });
   }
 
   clearActors() {
@@ -133,12 +152,13 @@ export class Game {
     a.botIndex = index; a.setLoadout(info.loadout); a.archetype = info.archetype;
     if (weapon) { const w = WEAPON_BY_ID[weapon]; if (w && w.slot <= 5) a.slot = w.slot; a.prevSpawnSlot = a.slot; }
     this.actors.push(a);
-    this.brains.set(a, new BotBrain(this, a, info, skill ?? (0.45 + ((index * 37) % 10) / 22)));
+    this.brains.set(a, new BotBrain(this, a, info, skill ?? (0.2 + ((index * 37) % 10) / 30)));
     return a;
   }
   removeActor(a) { if (a.rig) this.scene.remove(a.rig); this.actors = this.actors.filter((x) => x !== a); this.brains.delete(a); }
 
   respawnActor(a) {
+    if (a.isTarget) { a.respawn(a.home, 0); a.spawnProtect = 0; if (a.rig) { a.rig.visible = true; a.deathT = 0; } return; }
     const p = this.match.spawnFor(a); a.respawn(p, Math.atan2(p.x, p.z));
     if (a === this.player) { this.vm.setWeapon(a.loadout[a.slot], a.skins[a.loadout[a.slot]]); this.hud.slotsKey = ''; }
     if (a.rig) { a.rig.rotation.set(0, a.yaw, 0); a.rig.visible = true; a.deathT = 0; }
@@ -202,11 +222,29 @@ export class Game {
     this.hud.killfeed(killer, t, info.weapon, info.head);
     if (killer === this.player && t !== this.player) {
       sfx.kill();
-      const tier = profile.addWeaponKill(info.weapon); profile.save();
-      if (tier) this.hud.toast(`${tier.name} skin unlocked for ${WEAPON_BY_ID[info.weapon]?.name}!`, 'gold');
+      const tier = profile.addWeaponKill(baseId(info.weapon)); profile.save();
+      if (tier) this.hud.toast(`${tier.name} skin unlocked for ${WEAPON_BY_ID[baseId(info.weapon)]?.name}!`, 'gold');
+      this.awardKill(t, info);
     }
     if (t === this.player) { this.vm.visible = false; t.prevSpawnSlot = t.slot; }
     if (this.owns(t) && this.net.connected) this.net.event({ t: 'kill', victim: t.id, killer: killer?.id, weapon: info.weapon, head: !!info.head, melee: !!info.melee, explosive: !!info.explosive });
+  }
+  // Kill bounty: paid immediately and shown in the ELIMINATED banner. Throwables (mine, grenade, molotov…) pay extra.
+  awardKill(victim, info) {
+    const w = WEAPON_BY_ID[info.weapon] || {};
+    const practice = this.match?.mode.practice || victim.isTarget;
+    let coins = 0; const tags = [];
+    if (!practice) {
+      coins = 10;
+      if (info.head) { coins += 5; tags.push('HEADSHOT'); }
+      if (w.slot === 4) { coins += 10; tags.push({ land_mine: 'MINE KILL', frag: 'GRENADE KILL', molotov: 'MOLOTOV KILL', sticky_bomb: 'STICKY KILL', flashbang: 'FLASH KILL', smoke_grenade: 'SMOKE KILL' }[w.id] || 'THROWABLE KILL'); }
+      else if (info.explosive || w.splash) { coins += 5; tags.push('EXPLOSIVE'); }
+      if (info.melee) { coins += 5; tags.push('MELEE'); }
+      if (info.emotional) tags.push('EMOTIONAL DAMAGE');
+      profile.addCoins(coins); this.killCoins += coins;
+    }
+    this.killCount++;
+    this.hud.killBanner(victim.name, info.weapon, coins, tags.join(' · '));
   }
   blind(t, time) { if (!this.owns(t)) { this.net.event({ t: 'blind', target: t.id, time }); return; } t.fx.flash = Math.max(t.fx.flash, time); if (t === this.player) { this.hud.flash(time); sfx.ring(time); } }
   stun(t, time) { if (!this.owns(t)) { this.net.event({ t: 'stun', target: t.id, time }); return; } t.fx.stun = Math.max(t.fx.stun, time); if (t.ws) { t.ws.reloading = 0; t.ws.cook = -1; } }
@@ -229,7 +267,7 @@ export class Game {
   // ═════════════════ hooks from combat ═════════════════
   muzzleWorld(a, out) {
     if (a === this.player && this.vm.item) return this.vm.muzzleWorld(this.camera, out);
-    const m = a.rig?.userData.parts?.weaponMount?.children[0];
+    const m = a.rig?.userData.parts?.active?.children[0];
     const mk = m && findMarker(m, 'muzzle');
     if (mk) { a.rig.updateMatrixWorld(true); return mk.getWorldPosition(out); }
     return a.eye(out).addScaledVector(a.aimDir(_a), 0.6);
@@ -285,7 +323,7 @@ export class Game {
       case 'w:barricade': { const o = A(e.owner); if (o) this.combat.placeBarricade(o, WEAPON_BY_ID.barricade.barricade, { pos: e.pos, alongX: e.alongX, id: e.id }); break; }
       case 'w:barricade_down': { const b = this.combat.barricades.find((x) => x.id === e.id); if (b) this.combat.destroyBarricade(b); break; }
       case 'hit': { const t = A(e.target); if (t && this.owns(t)) this.applyDamage(t, e.amount, { attacker: A(e.attacker), weapon: e.weapon, head: e.head, explosive: e.explosive, fire: e.fire, emotional: e.emotional, melee: e.melee, pos: e.pos }); break; }
-      case 'kill': { const t = A(e.victim); if (!t || this.owns(t)) return; if (t.alive) { t.alive = false; t.deathT = 0; t.stats.deaths++; const k = A(e.killer); if (k && k !== t) { k.stats.kills++; } this.match.onKill(t, k); this.hud.killfeed(k, t, e.weapon, e.head); if (k === this.player) { sfx.kill(); this.hud.hitmarker(e.head, true); profile.addWeaponKill(e.weapon); if (e.melee) k.stats.meleeKills++; if (e.explosive) k.stats.explosiveKills++; } } break; }
+      case 'kill': { const t = A(e.victim); if (!t || this.owns(t)) return; if (t.alive) { t.alive = false; t.deathT = 0; t.stats.deaths++; const k = A(e.killer); if (k && k !== t) { k.stats.kills++; } this.match.onKill(t, k); this.hud.killfeed(k, t, e.weapon, e.head); if (k === this.player) { sfx.kill(); this.hud.hitmarker(e.head, true); profile.addWeaponKill(baseId(e.weapon)); if (e.melee) k.stats.meleeKills++; if (e.explosive) k.stats.explosiveKills++; this.awardKill(t, { weapon: e.weapon, head: e.head, melee: e.melee, explosive: e.explosive }); } } break; }
       case 'blind': { const t = A(e.target); if (t && this.owns(t)) this.blind(t, e.time); break; }
       case 'stun': { const t = A(e.target); if (t && this.owns(t)) this.stun(t, e.time); break; }
       case 'spawn': { const a = A(e.id); if (a && !this.owns(a)) { a.alive = true; a.hp = BASE_HP; a.pos.set(...e.pos); a.net = { pos: a.pos.clone(), yaw: a.yaw, pitch: 0, t: this.time }; } break; }
@@ -320,7 +358,7 @@ export class Game {
       this.look.dx = it.dx; this.look.dy = it.dy;
       const frozen = this.match && (this.match.phase === 'warmup' || this.match.phase === 'end');
       if (p.alive && !this.paused) {
-        const zoom = p.ws?.def.ads ? 1 + (p.ws.def.ads - 1) * this.vm.adsK : 1;
+        const zoom = p.ws?.def.scope ? 1 + (p.ws.def.ads - 1) * this.vm.adsK : 1;   // only snipers zoom
         const sens = 0.0022 * (profile.d.settings.sens || 1) / zoom;
         p.yaw -= it.dx * sens; p.pitch = THREE.MathUtils.clamp(p.pitch - it.dy * sens, -1.5, 1.5);
         if (this.noclip) this.noclipMove(it, dt);
@@ -330,13 +368,14 @@ export class Game {
           if (wish.lengthSq() > 0) wish.normalize();
           const wasGround = p.onGround;
           if (frozen) wish.set(0, 0, 0);
-          p.move(dt, this.map.world, wish, it.jumpPressed && !frozen, it.forward && !frozen);
+          p.move(dt, this.map.world, wish, it.jumpPressed && !frozen, it.forward && !frozen ? p.forward(V()) : null);
           // footsteps
           const spd = Math.hypot(p.vel.x, p.vel.z); p.stepAcc = (p.stepAcc || 0) + spd * dt;
           if (p.onGround && p.stepAcc > 2.1) { p.stepAcc = 0; sfx.footstep(null, (1 + (p.mods.footstep || 0)) * 0.6, this.mapId === 'desert_outpost' ? 'sand' : 'hard'); }
           if (p.landed && !wasGround) sfx.footstep(null, 0.8);
         }
         if (!frozen) this.combat.tick(p, it, dt);
+        this.checkUltra(p);
         if (p.ws?.id && this.vm.id !== p.loadout[p.slot]) this.vm.setWeapon(p.loadout[p.slot], p.skins[p.loadout[p.slot]]);
       }
       this.input.endFrame();
@@ -347,10 +386,12 @@ export class Game {
       this.updateStatus(a, dt);
       const brain = this.brains.get(a);
       const frozenB = this.match && (this.match.phase === 'warmup' || this.match.phase === 'end');
-      if (brain && a.alive && frozenB) { a.move(dt, this.map.world, _a.set(0, 0, 0), false, false); }
+      if (a.isTarget) { if (a.alive && a.slide) { a.pos.x = a.home.x + Math.sin(this.time * 0.9 + a.botIndex) * a.slide; } this.checkUltra(a); continue; }
+      if (brain && a.alive && frozenB) { a.move(dt, this.map.world, _a.set(0, 0, 0), false, null); }
       else if (brain && a.alive) {
         const it = brain.control(dt);
-        a.move(dt, this.map.world, it.wish, it.jumpPressed, it.wish.lengthSq() > 0);
+        a.move(dt, this.map.world, it.wish, it.jumpPressed, it.climb);
+        this.checkUltra(a);
         this.combat.tick(a, it, dt);
         const spd = Math.hypot(a.vel.x, a.vel.z); a.stepAcc = (a.stepAcc || 0) + spd * dt;
         if (a.onGround && a.stepAcc > 2.2) { a.stepAcc = 0; sfx.footstep(a.pos, 1 + (a.mods.footstep || 0)); }
@@ -360,6 +401,20 @@ export class Game {
     this.match?.update(dt);
     for (let i = this.queue.length - 1; i >= 0; i--) if (this.queue[i].t <= this.time) { const q = this.queue.splice(i, 1)[0]; q.fn(); }
     this.net.update(dt);
+  }
+  // ULTRA: 1v1 → after the first minute of a round; every other mode → after surviving 30 s. Lasts until death.
+  checkUltra(a) {
+    const m = this.match; if (!m || m.phase !== 'live' || !a.alive || a.ultra || a.isTarget) return;
+    if (a.aliveSince == null) a.aliveSince = this.time;
+    const ok = m.id === '1v1' ? (m.mode.roundTime - m.timeLeft) >= 60 : (this.time - a.aliveSince) >= 30;
+    if (!ok) return;
+    const u = ULTRA_OF[baseId(a.loadout[1])];
+    if (!u || !a.activateUltra(u)) { a.ultra = true; return; }   // no Ultra for this primary — stop checking
+    if (a === this.player) {
+      this.hud.center(`<b class="ultra">⚡ ULTRA UNLOCKED ⚡</b><br>${WEAPON_BY_ID[u].name}`, 2.6); this.hud.slotsKey = '';
+      if (a.slot === 1) this.vm.setWeapon(u, null);
+      sfx.ultra?.();
+    } else if (this.player && a.pos.distanceTo(this.player.pos) < 40) this.hud.toast(`${a.name} went ULTRA!`, 'warn');
   }
   interpRemote(a, dt) {
     if (!a.net) return;
@@ -409,7 +464,7 @@ export class Game {
     const sh = this.shake * this.shake;
     const wob = this.wobble > 0 ? Math.sin(this.time * 22) * 0.12 * (this.wobble / 0.8) : 0;
     cam.rotation.set(p.pitch + (Math.random() - 0.5) * sh * 0.2 + wob * 0.3, p.yaw + (Math.random() - 0.5) * sh * 0.2, wob + (p.fx.stun > 0 ? Math.sin(this.time * 40) * 0.01 : 0));
-    const def = p.ws?.def; const zoom = def?.ads ? 1 + (def.ads - 1) * this.vm.adsK : 1;
+    const def = p.ws?.def; const zoom = def?.scope ? 1 + (def.ads - 1) * this.vm.adsK : 1;
     const fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(this.baseFov) / 2) / zoom)) + (p.fx.scythe > 0 ? 8 : 0);
     if (Math.abs(cam.fov - fov) > 0.01) { cam.fov = fov; cam.updateProjectionMatrix(); }
     cam.updateMatrixWorld();
@@ -422,7 +477,7 @@ export class Game {
     this.effects.thermal = p.thermal.on;
     for (const a of this.actors) if (a !== p) this.updateRig(a, dt);
     // viewmodel
-    if (p.alive) this.vm.update(dt, p, this.look);
+    if (p.alive) this.vm.update(dt, p, this.look, { time: this.time });
     this.effects.update(dt, this.combat.bullets);
     this.hud.update(dt);
     // draw
@@ -431,9 +486,28 @@ export class Game {
     if (p.alive && this.vm.visible && !this.noclip) this.vm.render(this.renderer);
   }
 
+  // callsign + health bar: teammates always, enemies only while in direct line of sight (no wallhacks)
+  updatePlate(a, dt) {
+    const pl = a.plate; if (!pl) return;
+    const p = this.player; const d = a.pos.distanceTo(this.camera.position);
+    const ally = !this.hostile(p, a);
+    a.plateT = (a.plateT || 0) - dt;
+    if (a.plateT <= 0) { a.plateT = 0.15 + Math.random() * 0.1; a.plateLos = this.map.world.lineOfSight(this.camera.position, a.headPos(_b).add(_a.set(0, 0.3, 0))) && !this.combat.inSmoke(this.camera.position, a.chest(_b)); }
+    pl.visible = a.alive && d < (ally ? 80 : 55) && (ally || a.plateLos || p.thermal.on && a.plateLos !== false);
+    if (!pl.visible) return;
+    const col = a.isTarget ? '#ffd08a' : ally ? '#7fc4ff' : a.team === 'blue' ? '#7fb0ff' : a.team === 'red' ? '#ff8a7a' : '#ffb070';
+    drawPlate(pl, a.name, a.hp, a.armor, a.maxHp, col, a.ultra && a.ultraFrom);
+    const k = Math.max(1, d / 14); pl.scale.set(1.15 * k, 0.29 * k, 1);
+  }
   updateRig(a, dt) {
-    if (!a.rig) { a.rig = buildSoldier(a.team, a.botIndex ?? 0); this.scene.add(a.rig); a.rigWeapon = null; }
+    if (!a.rig) { a.rig = a.isTarget ? buildTarget() : buildSoldier(a.team, a.botIndex ?? 0); this.scene.add(a.rig); a.rigWeapon = null; a.plate = makePlate(); a.plate.position.y = a.isTarget ? 2.15 : 2.2; a.rig.add(a.plate); }
     const rig = a.rig;
+    this.updatePlate(a, dt);
+    if (a.isTarget) {
+      if (!a.alive) { a.deathT = (a.deathT || 0) + dt; rig.rotation.x = Math.max(-Math.PI / 2, -a.deathT * 6); return; }
+      rig.visible = true; rig.position.copy(a.pos); rig.rotation.set(0, Math.atan2(this.player.pos.x - a.pos.x, this.player.pos.z - a.pos.z) + Math.PI, 0);
+      return;
+    }
     const wid = a.loadout[a.slot];
     if (a.rigWeapon !== wid) { attachWeapon(rig, wid, a.skins?.[wid]); a.rigWeapon = wid; a.rigThermal = null; }
     if (!a.alive) {
@@ -445,7 +519,7 @@ export class Game {
     rig.visible = true; rig.position.copy(a.pos); rig.rotation.set(0, a.yaw, 0);
     const spd = a.isRemote || !this.owns(a) ? (a.netSpeed || 0) : Math.hypot(a.vel.x, a.vel.z);
     a.animPhase += dt * spd * 1.6;
-    poseSoldier(rig, { speed: spd, phase: a.animPhase, aimPitch: a.pitch, kind: a.held?.kind === 'melee' ? 'melee' : 'gun', swing: a.ws?.swing || 0 });
+    poseSoldier(rig, { speed: spd, phase: a.animPhase, aimPitch: a.pitch, swing: a.ws?.swing || 0, firing: this.time - (a.lastShotT ?? -9) < 0.15 });
     // thermal highlight (enemies only, through smoke; walls still occlude)
     const hot = this.player.thermal.on && this.hostile(this.player, a);
     if (a.rigThermal !== hot) {

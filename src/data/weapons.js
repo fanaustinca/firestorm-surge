@@ -1,4 +1,4 @@
-// Firestorm Surge — complete 6-slot item table (39 items).
+// Firestorm Surge — complete 6-slot item table.
 // Units: meters, seconds, m/s. `interval` = seconds between shots/swings.
 // `speed` = active-hand movement multiplier (only the held item counts).
 // `price` = coin unlock cost (0 / free:true = starter). Every non-free item can also
@@ -30,8 +30,8 @@ add({ id: 'dmr', name: 'Light Sniper (DMR)', slot: 1, free: true, price: 0, spee
   kind: 'bullet', mode: 'semi', interval: 0.250, dmg: 65, head: 165, mag: 3, reserve: 30, reload: 2.2, range: 75, vel: 600,
   spread: 0.002, recoil: 0.035, ads: 2.5, scope: true, emptyPing: true, desc: '3-round clip, one-shot headshots. Ping on empty.' });
 add({ id: 'rocket_launcher', name: 'Rocket Launcher', slot: 1, free: true, price: 0, speed: 0.80,
-  kind: 'projectile', proj: 'rocket', mode: 'semi', interval: 0.6, dmg: 145, head: 145, mag: 1, reserve: 3, reload: 2.4, range: 120, vel: 35,
-  splash: { radius: 4.5, max: 115, min: 40 }, recoil: 0.05, ads: 1.4, desc: '35 m/s rocket, 4.5 m splash.' });
+  kind: 'projectile', proj: 'rocket', mode: 'semi', interval: 0.6, dmg: 230, head: 230, mag: 1, reserve: 4, reload: 2.4, range: 120, vel: 35,
+  splash: { radius: 7.5, max: 175, min: 60 }, knockback: 12, recoil: 0.05, ads: 1.4, desc: '35 m/s rocket, massive 7.5 m blast.' });
 add({ id: 'burst_rifle', name: 'Battle Rifle', slot: 1, price: 900, speed: 1.00,
   kind: 'bullet', mode: 'burst', burst: 3, interval: 0.08, burstDelay: 0.25, dmg: 23, head: 35, mag: 24, reserve: 120, reload: 1.9, range: 65, vel: 420,
   spread: 0.008, recoil: 0.014, ads: 1.6, desc: '3-round bursts at 750 RPM.' });
@@ -45,11 +45,11 @@ add({ id: 'flamethrower', name: 'Flamethrower', slot: 1, price: 1200, speed: 0.8
   kind: 'flame', mode: 'auto', interval: 0.083, dmg: 14, head: 14, mag: 100, reserve: 200, reload: 2.6, range: 11,
   burn: { dps: 6, time: 3 }, cone: 0.22, ammoPerShot: 1, ads: 1.1, desc: '168 DPS cone + burn. Ignites smoke.' });
 add({ id: 'grenade_launcher', name: 'Grenade Launcher', slot: 1, price: 1000, speed: 0.95,
-  kind: 'projectile', proj: 'gl_shell', mode: 'semi', interval: 0.67, dmg: 95, head: 95, mag: 4, reserve: 8, reload: 2.6, range: 60, vel: 24,
-  splash: { radius: 4.0, max: 80, min: 30 }, bounce: true, fuse: 2.2, recoil: 0.04, ads: 1.3, desc: 'Revolving drum of bouncing shells.' });
+  kind: 'projectile', proj: 'gl_shell', mode: 'semi', interval: 0.67, dmg: 150, head: 150, mag: 4, reserve: 8, reload: 2.6, range: 60, vel: 24,
+  splash: { radius: 6.5, max: 135, min: 50 }, knockback: 9, bounce: true, fuse: 2.2, recoil: 0.04, ads: 1.3, desc: 'Revolving drum of bouncing shells.' });
 add({ id: 'mortar', name: 'Mortar Launcher', slot: 1, price: 1300, speed: 0.80,
-  kind: 'mortar', proj: 'mortar_shell', mode: 'semi', interval: 0.8, dmg: 175, head: 175, mag: 1, reserve: 2, reload: 3.2, range: 70, minRange: 12,
-  splash: { radius: 7.5, max: 130, min: 50 }, warn: 0.9, ads: 1.2, desc: 'High-arc shell, 0.9s red warning ring.' });
+  kind: 'mortar', proj: 'mortar_shell', mode: 'semi', interval: 0.8, dmg: 280, head: 280, mag: 1, reserve: 3, reload: 3.2, range: 70, minRange: 12,
+  splash: { radius: 11, max: 210, min: 80 }, knockback: 14, ads: 1.2, desc: 'High-arc shell, 11 m devastation. No warning.' });
 
 // ───────────── Slot 2: Secondary ─────────────
 add({ id: 'pistol', name: 'Standard Pistol', slot: 2, free: true, price: 0, speed: 1.10,
@@ -113,6 +113,9 @@ add({ id: 'flashbang', name: 'Flashbang', slot: 4, price: 450, speed: 1.05,
 add({ id: 'sticky_bomb', name: 'Sticky Bomb', slot: 4, price: 600, speed: 1.05,
   kind: 'throwable', proj: 'sticky', carry: 1, fuse: 2.5, sticky: true, remote: true, dmg: 145,
   splash: { radius: 4.5, max: 110, min: 40 }, desc: 'Sticks. 2.5s or right-click detonate.' });
+add({ id: 'land_mine', name: 'Land Mine', slot: 4, price: 650, speed: 1.05,
+  kind: 'throwable', proj: 'mine', carry: 2, mine: { arm: 1.0, trigger: 1.3, life: 120 }, dmg: 190,
+  splash: { radius: 5.0, max: 150, min: 45 }, knockback: 10, desc: 'Toss it down. Arms in 1s, explodes when an enemy steps on it.' });
 
 // ───────────── Slot 5: Usables ─────────────
 add({ id: 'medkit', name: 'Med Kit', slot: 5, free: true, slotFree: true, price: 0, speed: 1.0,
@@ -139,7 +142,26 @@ add({ id: 'thermal_goggles', name: 'Thermal Goggles', slot: 6, price: 1100,
   kind: 'wearable', active: true, mods: { thermal: { battery: 8, recharge: 6 } }, desc: 'F/V: see enemies through smoke & shadow (not walls).' });
 
 export const WEAPONS = W;
-export const WEAPON_BY_ID = Object.fromEntries(W.map((w) => [w.id, w]));
+
+// ───────────── ULTRA variants (slot 1) ─────────────
+// Granted mid-match: 1v1 after the first minute of a round, other modes after surviving 30 s.
+// They last until you die. Not purchasable — previewable from the Loadout.
+const U = (base, o) => { const b = W.find((w) => w.id === base); return { ...b, ...o, id: base + '_ultra', base, ultra: true, price: 0, free: false, name: 'ULTRA ' + b.name.replace(/ \(.*\)/, '') }; };
+export const ULTRAS = [
+  U('assault_rifle', { interval: 0.075, dmg: 27, head: 42, mag: 60, reserve: 240, spread: 0.008, recoil: 0.008, desc: 'Twin-rail plasma rifle. 60-round drum, 800 RPM.' }),
+  U('ak47', { interval: 0.1, dmg: 34, head: 52, mag: 75, reserve: 225, spread: 0.012, recoil: 0.014, desc: 'Gilded drum-fed AK with bayonet. 75 rounds.' }),
+  U('dmr', { interval: 0.18, dmg: 90, head: 200, mag: 10, reserve: 50, reload: 2.0, desc: 'Coil-charged marksman rifle. 10-round mag.' }),
+  U('rocket_launcher', { interval: 0.32, dmg: 260, head: 260, mag: 8, reserve: 16, reload: 3.4, splash: { radius: 8.5, max: 195, min: 70 }, desc: 'Spinning 8-rocket wheel. 8 rockets per reload.' }),
+  U('burst_rifle', { burst: 5, interval: 0.06, burstDelay: 0.22, dmg: 29, head: 44, mag: 50, reserve: 200, desc: '5-round hyper-burst battle rifle.' }),
+  U('lmg', { interval: 0.04, dmg: 24, head: 36, mag: 300, reserve: 600, reload: 4.0, speed: 0.8, spread: 0.016, recoil: 0.004, range: 70, desc: 'Six rotating barrels. 1500 RPM, 300-round belt. An absolute killer.' }),
+  U('heavy_sniper', { interval: 0.5, dmg: 210, head: 400, mag: 4, reserve: 16, vel: 1400, range: 120, pierce: true, desc: 'Railgun. Slugs pierce through every enemy in line.' }),
+  U('flamethrower', { dmg: 20, head: 20, mag: 300, reserve: 300, range: 16, cone: 0.3, twin: true, burn: { dps: 10, time: 4 }, desc: 'Twin nozzles, enormous fuel tank, 16 m inferno.' }),
+  U('grenade_launcher', { interval: 0.35, dmg: 170, head: 170, mag: 12, reserve: 24, splash: { radius: 7.5, max: 155, min: 55 }, desc: '12-shell rotary drum.' }),
+  U('mortar', { interval: 0.45, dmg: 340, head: 340, mag: 4, reserve: 8, reload: 3.0, splash: { radius: 13, max: 250, min: 95 }, desc: 'Quad-tube battery. 4 shells per reload, bigger blasts.' }),
+];
+export const ULTRA_OF = Object.fromEntries(ULTRAS.map((u) => [u.base, u.id]));
+export const baseId = (id) => (id && id.endsWith('_ultra') ? id.slice(0, -6) : id);
+export const WEAPON_BY_ID = Object.fromEntries([...W, ...ULTRAS].map((w) => [w.id, w]));
 export const bySlot = (slot) => W.filter((w) => w.slot === slot);
 export const DEFAULT_LOADOUT = { 1: 'assault_rifle', 2: 'pistol', 3: 'fists', 4: 'frag', 5: 'medkit', 6: 'tactical_gloves' };
 export const isExplosive = (w) => !!(w.splash || w.fire || w.kind === 'flame');
@@ -151,6 +173,17 @@ export const SKIN_TIERS = [
   { id: 'obsidian', name: 'Obsidian', kills: 500 },
 ];
 
+// Shop skins: bought once with coins, usable on any slot 1–4 item.
+export const SHOP_SKINS = [
+  { id: 'woodland', name: 'Woodland Camo', price: 400 },
+  { id: 'arctic', name: 'Arctic Camo', price: 450 },
+  { id: 'crimson', name: 'Crimson Tiger', price: 600 },
+  { id: 'carbon', name: 'Carbon Fiber', price: 700 },
+  { id: 'toxic', name: 'Toxic Glow', price: 850 },
+  { id: 'galaxy', name: 'Galaxy', price: 1200 },
+  { id: 'dragon', name: 'Dragon Scale', price: 1500 },
+];
+
 // Holiday reskins: month (0-based) → weapon id + label
 export const HOLIDAY_SKINS = [
   { id: 'pumpkin', month: 9, weapon: 'rocket_launcher', name: 'Pumpkin Launcher' },
@@ -159,5 +192,5 @@ export const HOLIDAY_SKINS = [
   { id: 'candycane', month: 11, weapon: 'katana', name: 'Candy Cane Katana' },
 ];
 
-// Spec tally: 39 items + 3 freebies bundled with slot 5/6 access (Med Kit, Ammo Pack, Tactical Gloves) = 42 entries.
-if (W.length !== 42) console.warn('weapon table expected 42 entries, has', W.length);
+// Spec tally: 39 items + 3 slot freebies (Med Kit, Ammo Pack, Tactical Gloves) + Land Mine = 43 entries.
+if (W.length !== 43) console.warn('weapon table expected 43 entries, has', W.length);

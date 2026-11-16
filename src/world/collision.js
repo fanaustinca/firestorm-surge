@@ -5,7 +5,7 @@ import * as THREE from 'three';
 const CELL = 4;
 
 export class CollisionWorld {
-  constructor() { this.boxes = []; this.grid = new Map(); this.nextId = 1; this.ceiling = Infinity; this.bounds = 37.5; }
+  constructor() { this.boxes = []; this.grid = new Map(); this.nextId = 1; this.ceiling = Infinity; this.bounds = 30; }
 
   add(min, max, opts = {}) {
     const b = { min: [...min], max: [...max], id: this.nextId++, ...opts };
@@ -72,7 +72,7 @@ export class CollisionWorld {
   }
 
   // Resolve a vertical cylinder (feet at pos.y). Mutates pos & vel. Returns {onGround, touchingClimbable, hitCeiling, climbBox}
-  resolve(pos, vel, radius, height, stepUp = 0.45) {
+  resolve(pos, vel, radius, height, stepUp = 0.55) {
     const res = { onGround: false, touching: [], hitCeiling: false, groundBox: null };
     const near = this.query(pos.x - radius - 1, pos.z - radius - 1, pos.x + radius + 1, pos.z + radius + 1);
     // ground plane
@@ -125,12 +125,14 @@ export class CollisionWorld {
     return res;
   }
 
-  // climbable surfaces within reach in front of the player
-  climbableNear(pos, radius, height, fwd) {
+  // climbable surfaces within reach in front of the player.
+  // anyWall (Fists): every solid wall face can be scaled; otherwise only designated ladders/vines/rungs.
+  climbableNear(pos, radius, height, fwd, anyWall = false, continuing = true) {
     const probe = { x: pos.x + fwd.x * 0.25, z: pos.z + fwd.z * 0.25 };
     for (const b of this.query(probe.x - 1, probe.z - 1, probe.x + 1, probe.z + 1)) {
-      if (!b.climbable) continue;
+      if (!b.climbable && !(anyWall && !b.noCollide && !b.noClimb && !b.seeThrough && b.kind !== 'barricade' && b.max[1] - b.min[1] > 0.9)) continue;
       if (pos.y > b.max[1] + 0.2 || pos.y + height < b.min[1]) continue;
+      if (!continuing && pos.y > b.max[1] - 0.4) continue;   // don't start a climb from the top of a ladder/wall
       const cx = Math.max(b.min[0], Math.min(probe.x, b.max[0])), cz = Math.max(b.min[2], Math.min(probe.z, b.max[2]));
       if ((probe.x - cx) ** 2 + (probe.z - cz) ** 2 <= (radius + 0.12) ** 2) return b;
     }

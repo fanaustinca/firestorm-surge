@@ -36,19 +36,24 @@ export class Net {
   attach(room, hello, peers, name) {
     this.room = room; this.lobby = name; this.connected = true; this.status = 'online'; this.peers = peers;
     this.stA = room.makeAction('st'); this.evA = room.makeAction('ev'); this.mA = room.makeAction('match'); this.hello = hello;
+    this.lobA = room.makeAction('lob'); this.voteA = room.makeAction('vote');
+    this.lobA.onMessage((d, ctx) => { const from = this.peers.get(ctx.peerId)?.id; if (from && from === this.humans[0]) this.onLobby?.(d); });
+    this.voteA.onMessage((d) => this.onVote?.(d));
     hello.onMessage((d, ctx) => {
       if (!d?.id || d.id === this.selfId) return;
       const isNew = ![...this.peers.values()].some((p) => p.id === d.id);
       this.peers.set(ctx.peerId, { id: d.id, name: d.name, lastSeen: performance.now() });
-      if (isNew) { this.g.onPeerJoin(d.id, d.name); hello.send({ id: this.selfId, name: this.g.playerName }, { target: ctx.peerId }).catch(() => {}); }
+      if (isNew) { if (this.g.state === 'playing') this.g.onPeerJoin(d.id, d.name); this.onPeers?.(); hello.send({ id: this.selfId, name: this.g.playerName }, { target: ctx.peerId }).catch(() => {}); }
     });
     room.onPeerJoin?.((ctx) => hello.send({ id: this.selfId, name: this.g.playerName }, { target: ctx.peerId }).catch(() => {}));
-    room.onPeerLeave?.((ctx) => { const p = this.peers.get(ctx.peerId); if (p) { this.peers.delete(ctx.peerId); this.g.onPeerLeave(p.id); } });
+    room.onPeerLeave?.((ctx) => { const p = this.peers.get(ctx.peerId); if (p) { this.peers.delete(ctx.peerId); if (this.g.state === 'playing') this.g.onPeerLeave(p.id); this.onPeers?.(); } });
     this.stA.onMessage((d) => this.g.onRemoteState(d));
     this.evA.onMessage((d) => this.g.onRemoteEvent(d));
     this.mA.onMessage((d) => { if (!this.isHost) this.g.onRemoteMatch(d); });
-    for (const p of this.peers.values()) this.g.onPeerJoin(p.id, p.name);
   }
+  sendLobby(d) { if (this.connected) this.lobA.send(d).catch(() => {}); }
+  sendVote(d) { if (this.connected) this.voteA.send(d).catch(() => {}); }
+  get peerList() { return [{ id: this.selfId, name: this.g.playerName }, ...[...this.peers.values()].map((p) => ({ id: p.id, name: p.name }))]; }
 
   owns(actor) {
     if (!this.connected) return true;
@@ -59,7 +64,7 @@ export class Net {
 
   // 20 Hz state packets for owned actors
   update(dt) {
-    if (!this.connected) return;
+    if (!this.connected || this.g.state !== 'playing') return;
     this.sendAcc += dt;
     if (this.sendAcc < 1 / SEND_HZ) return;
     this.sendAcc = 0;
@@ -73,5 +78,5 @@ export class Net {
     if (this.isHost && this.matchAcc % 10 === 0 && this.g.match) this.mA.send(this.g.match.serialize()).catch(() => {});
   }
   event(e) { if (this.connected) this.evA.send(e).catch(() => {}); }
-  async leave() { if (this.room) { try { await this.room.leave(); } catch { /* ignore */ } } this.room = null; this.connected = false; this.peers = new Map(); this.status = 'offline'; }
+  async leave() { const r = this.room; this.room = null; this.connected = false; this.peers = new Map(); this.status = 'offline'; this.onLobby = this.onVote = this.onPeers = null; if (r) { try { await r.leave(); } catch { /* ignore */ } } }
 }

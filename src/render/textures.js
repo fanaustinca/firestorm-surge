@@ -207,6 +207,44 @@ const makers = {
     x.strokeStyle = 'rgba(255,60,40,0.9)'; x.lineWidth = 6; x.beginPath(); x.moveTo(128, 30); x.lineTo(128, 226); x.moveTo(30, 128); x.lineTo(226, 128); x.stroke();
     return finish(c, { aniso: 1 });
   },
+
+  // ── shop skin patterns ──
+  skin_woodland() { return camo(['#4b5320', '#2f3a1c', '#6b5a3a', '#1c1f14']); },
+  skin_arctic() { return camo(['#e8eef2', '#b8c4cc', '#8a98a4', '#ffffff']); },
+  skin_crimson() {
+    const [c, x] = canvas(256); x.fillStyle = '#b3121b'; x.fillRect(0, 0, 256, 256);
+    x.fillStyle = '#140405';
+    for (let i = 0; i < 18; i++) { const y = rnd() * 256, w = 6 + rnd() * 10; x.beginPath(); x.moveTo(0, y); for (let k = 0; k <= 8; k++) x.lineTo(k * 32, y + Math.sin(k + i) * 14 + (rnd() - 0.5) * 8); for (let k = 8; k >= 0; k--) x.lineTo(k * 32, y + w + Math.sin(k + i) * 14); x.fill(); }
+    return finish(c, { aniso: 4 });
+  },
+  skin_carbon() {
+    const [c, x] = canvas(128); x.fillStyle = '#121316'; x.fillRect(0, 0, 128, 128);
+    for (let i = 0; i < 128; i += 8) for (let j = 0; j < 128; j += 8) { const on = ((i + j) / 8) % 2 === 0; const g = x.createLinearGradient(i, j, i + (on ? 8 : 0), j + (on ? 0 : 8)); g.addColorStop(0, '#2a2d33'); g.addColorStop(0.5, '#4a4f58'); g.addColorStop(1, '#1a1c20'); x.fillStyle = g; x.fillRect(i + 0.5, j + 0.5, 7, 7); }
+    return finish(c, { aniso: 4 });
+  },
+  skin_toxic() {
+    const [c, x] = canvas(256); x.fillStyle = '#10180c'; x.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 60; i++) { const r = 4 + rnd() * 22; const px = rnd() * 256, py = rnd() * 256; const g = x.createRadialGradient(px, py, 0, px, py, r); g.addColorStop(0, '#d4ff3a'); g.addColorStop(0.6, '#5ad41a'); g.addColorStop(1, 'rgba(40,120,10,0)'); x.fillStyle = g; x.beginPath(); x.arc(px, py, r, 0, 7); x.fill(); }
+    return finish(c, { aniso: 4 });
+  },
+  skin_galaxy() {
+    const [c, x] = canvas(256); const g = x.createLinearGradient(0, 0, 256, 256); g.addColorStop(0, '#1a0638'); g.addColorStop(0.5, '#3a0f6e'); g.addColorStop(1, '#0a1a4a'); x.fillStyle = g; x.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 14; i++) { const px = rnd() * 256, py = rnd() * 256, r = 20 + rnd() * 50; const gg = x.createRadialGradient(px, py, 0, px, py, r); gg.addColorStop(0, ['rgba(255,80,200,0.35)', 'rgba(80,160,255,0.35)', 'rgba(160,90,255,0.35)'][i % 3]); gg.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = gg; x.fillRect(0, 0, 256, 256); }
+    for (let i = 0; i < 220; i++) { x.fillStyle = `rgba(255,255,255,${0.4 + rnd() * 0.6})`; const r = rnd() < 0.08 ? 1.6 : 0.7; x.beginPath(); x.arc(rnd() * 256, rnd() * 256, r, 0, 7); x.fill(); }
+    return finish(c, { aniso: 4 });
+  },
+  skin_dragon() {
+    const [c, x] = canvas(256); x.fillStyle = '#2a0a04'; x.fillRect(0, 0, 256, 256);
+    for (let j = -1; j < 18; j++) for (let i = -1; i < 18; i++) { const px = i * 16 + (j % 2) * 8, py = j * 14; const g = x.createLinearGradient(px, py, px, py + 16); g.addColorStop(0, '#ffb020'); g.addColorStop(0.5, '#c8400c'); g.addColorStop(1, '#3a0c04'); x.fillStyle = g; x.beginPath(); x.ellipse(px + 8, py + 8, 8, 9, 0, 0, Math.PI); x.fill(); }
+    return finish(c, { aniso: 4 });
+  },
+  ultra() {
+    const [c, x] = canvas(256); x.fillStyle = '#07080c'; x.fillRect(0, 0, 256, 256);
+    x.strokeStyle = 'rgba(40,220,255,0.55)'; x.lineWidth = 2;
+    for (let i = 0; i < 26; i++) { let px = rnd() * 256, py = rnd() * 256; x.beginPath(); x.moveTo(px, py); for (let k = 0; k < 4; k++) { if (rnd() < 0.5) px += (rnd() < 0.5 ? -1 : 1) * 30; else py += (rnd() < 0.5 ? -1 : 1) * 30; x.lineTo(px, py); } x.stroke(); }
+    x.fillStyle = 'rgba(255,60,220,0.7)'; for (let i = 0; i < 30; i++) x.fillRect(rnd() * 256, rnd() * 256, 3, 3);
+    return finish(c, { aniso: 4 });
+  },
   sky() {
     const [c, x] = canvas(16, 256); const g = x.createLinearGradient(0, 0, 0, 256);
     g.addColorStop(0, '#2e6fb5'); g.addColorStop(0.45, '#8ec0e8'); g.addColorStop(0.55, '#d9e6ee'); g.addColorStop(1, '#b8a990');
@@ -225,6 +263,12 @@ const makers = {
     return finish(c, { aniso: 1 });
   },
 };
+
+function camo(cols) {
+  const [c, x] = canvas(256); x.fillStyle = cols[0]; x.fillRect(0, 0, 256, 256);
+  for (let k = 1; k < cols.length; k++) { x.fillStyle = cols[k]; for (let i = 0; i < 26; i++) { const px = rnd() * 256, py = rnd() * 256; x.beginPath(); for (let a = 0; a < 7; a++) { const r = 10 + rnd() * 26; const xx = px + Math.cos(a) * r * 1.4, yy = py + Math.sin(a) * r; a ? x.lineTo(xx, yy) : x.moveTo(xx, yy); } x.closePath(); x.fill(); } }
+  return finish(c, { aniso: 4 });
+}
 
 export function tex(name, repeat) {
   const key = name + ':' + (repeat ?? '');

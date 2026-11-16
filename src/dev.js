@@ -1,6 +1,6 @@
 // window.DEV — Chrome F12 console API for rapid testing.
 import * as THREE from 'three';
-import { WEAPONS, WEAPON_BY_ID } from './data/weapons.js';
+import { WEAPONS, WEAPON_BY_ID, ULTRA_OF, ULTRAS } from './data/weapons.js';
 import { MAPS } from './world/maps.js';
 import { MODES } from './game/match.js';
 import { profile } from './meta/profile.js';
@@ -15,12 +15,17 @@ export function installDev(game) {
         'DEV.giveCoins(amount)', 'DEV.unlockAll()', "DEV.equip(slot, weaponId)  e.g. DEV.equip(1,'mortar')", 'DEV.setHealth(hp, armor)',
         "DEV.loadMap(mapId, mode)  maps: " + Object.keys(MAPS).join(', ') + '  modes: ' + Object.keys(MODES).join(', '),
         "DEV.spawnBot(team, weaponId, {frozen, at:[x,y,z], ahead})", 'DEV.clearBots()', 'DEV.noclip()', 'DEV.godMode()',
-        "DEV.inspectGun(weaponId, {skin, angle, elev})", 'DEV.exitInspect()', 'DEV.list()', 'DEV.state()', 'DEV.advance(seconds)',
+        "DEV.inspectGun(weaponId, {skin, angle, elev})  e.g. DEV.inspectGun('rocket_launcher_ultra')", 'DEV.exitInspect()', 'DEV.list()', 'DEV.ultras()', 'DEV.ultra()  — force ULTRA now', 'DEV.state()', 'DEV.advance(seconds)',
       ];
       console.log('%cFIRESTORM SURGE DEV\n%c' + lines.join('\n'), 'color:#ff6a1a;font-weight:900;font-size:14px', 'color:#ccc');
       return lines;
     },
     list() { return WEAPONS.map((w) => `${w.slot}: ${w.id}`); },
+    ultras() { return ULTRAS.map((u) => u.id); },
+    weapon(id) { return WEAPON_BY_ID[id]; },
+    maps() { return Object.keys(MAPS); },
+    ultra() { const p = P(); if (!p) return; const u = ULTRA_OF[p.loadout[1]]; p.aliveSince = -999; g.checkUltra(p); return p.loadout[1] || u; },
+    version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev',
     giveCoins(n = 1000) { profile.addCoins(n); g.ui?.g.state === 'menu' && g.ui.showMenu(); return profile.coins; },
     unlockAll() { profile.unlockAll(); if (g.state === 'menu') g.ui?.showMenu(); return `Unlocked all ${WEAPONS.length} items + slots 5 & 6`; },
     equip(slot, id) {
@@ -73,7 +78,8 @@ export function installDev(game) {
     setThermal(on) { const p = P(); if (p.thermal.on !== !!on) g.toggleThermal(); return p.thermal.on; },
     throwAt(x, y, z, weaponId = 'smoke_grenade') {
       const d = WEAPON_BY_ID[weaponId]; const p = P();
-      const pr = g.combat.spawnProj(p, d, d.proj, new THREE.Vector3(x, y + 1, z), new THREE.Vector3(0, -1, 0), { fuse: 0.05 });
+      const impact = d.impact || d.mine;
+      const pr = g.combat.spawnProj(p, d, d.proj, new THREE.Vector3(x, y + 1, z), new THREE.Vector3(0, impact ? -8 : -1, 0), { fuse: impact ? Infinity : 0.05 });
       return pr.id;
     },
     game: g, profile,

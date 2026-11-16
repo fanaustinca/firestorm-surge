@@ -2,8 +2,9 @@
 export const MODES = {
   red_vs_blue: { id: 'red_vs_blue', name: 'Red vs. Blue', short: 'TDM', teams: true, size: 10, time: 300, killLimit: 50, respawn: 3, desc: '5v5 team deathmatch · 5 min · 50 kills' },
   ffa: { id: 'ffa', name: 'Free-For-All', short: 'FFA', teams: false, size: 8, time: 240, killLimit: 25, respawn: 2.5, desc: '8 players · 4 min · 25 kills' },
-  '2v2': { id: '2v2', name: '2v2 Wingman', short: '2v2', teams: true, size: 4, roundTime: 60, winRounds: 4, maxRounds: 7, desc: 'Best of 7 rounds · 60 s · no respawns' },
-  '1v1': { id: '1v1', name: '1v1 Duel', short: '1v1', teams: true, size: 2, roundTime: 45, winRounds: 3, maxRounds: 5, desc: 'Best of 5 rounds · 45 s · no respawns' },
+  '2v2': { id: '2v2', name: '2v2 Wingman', short: '2v2', teams: true, size: 4, roundTime: 75, winRounds: 4, maxRounds: 7, desc: 'Best of 7 rounds · 75 s · no respawns' },
+  '1v1': { id: '1v1', name: '1v1 Duel', short: '1v1', teams: true, size: 2, roundTime: 120, winRounds: 3, maxRounds: 5, desc: 'Best of 5 rounds · 2 min · ULTRA after 1 min' },
+  practice: { id: 'practice', name: 'Practice Range', short: 'PRAC', teams: false, size: 1, time: 5999, killLimit: Infinity, respawn: 1, practice: true, desc: 'Pick any map · targets only · no bots' },
 };
 
 export class Match {
@@ -40,7 +41,7 @@ export class Match {
       return;
     }
     if (this.phase !== 'live') return;
-    this.timeLeft -= dt;
+    if (!this.mode.practice) this.timeLeft -= dt;
     if (!this.roundBased) {
       for (const a of this.g.actors) if (!a.alive && a.respawnT > 0) { a.respawnT -= dt; if (a.respawnT <= 0 && this.g.owns(a)) this.g.respawnActor(a); }
       if (this.timeLeft <= 0) this.end();
@@ -62,6 +63,7 @@ export class Match {
       if (killer && killer !== victim) {
         if (this.mode.teams) { this.score[killer.team]++; if (this.score[killer.team] >= this.mode.killLimit) this.end(); }
         else if (killer.stats.kills >= this.mode.killLimit) this.end();
+        if (this.mode.practice) victim.respawnT = 1.2;
       } else if (this.mode.teams) this.score[victim.team] = Math.max(0, this.score[victim.team] - 1);
     }
   }
@@ -93,6 +95,7 @@ export class Match {
   // human-readable score line
   scoreline() {
     if (this.roundBased) return { left: this.rounds.red, right: this.rounds.blue, label: `ROUND ${this.round}` };
+    if (this.mode.practice) return { left: this.g.player?.stats.kills ?? 0, right: Math.round(this.g.player?.stats.damage ?? 0), label: 'PRACTICE · HITS / DMG', ffa: true };
     if (this.mode.teams) return { left: this.score.red, right: this.score.blue, label: `FIRST TO ${this.mode.killLimit}` };
     const sorted = [...this.g.actors].sort((a, b) => b.stats.kills - a.stats.kills);
     return { left: this.g.player?.stats.kills ?? 0, right: sorted[0]?.stats.kills ?? 0, label: `FIRST TO ${this.mode.killLimit}`, ffa: true, leader: sorted[0]?.name };

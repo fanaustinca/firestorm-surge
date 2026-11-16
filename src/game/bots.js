@@ -18,51 +18,82 @@ class MinHeap {
   }
 }
 
-export function findPath(nav, from, to, maxIter = 6000) {
-  const { N, half, cells } = nav;
-  const ci = (x) => Math.max(0, Math.min(N - 1, Math.floor(x + half)));
-  let si = ci(from.x), sj = ci(from.z), gi = ci(to.x), gj = ci(to.z);
-  const free = (i, j) => i >= 0 && j >= 0 && i < N && j < N && !cells[i * N + j];
-  if (!free(gi, gj)) { const n = nearestFree(nav, gi, gj); if (!n) return null; [gi, gj] = n; }
-  if (!free(si, sj)) { const n = nearestFree(nav, si, sj); if (n) [si, sj] = n; }
-  const start = si * N + sj, goal = gi * N + gj;
-  const g = new Float32Array(N * N).fill(Infinity); const came = new Int32Array(N * N).fill(-1);
-  const h = (k) => { const i = (k / N) | 0, j = k % N; const dx = Math.abs(i - gi), dz = Math.abs(j - gj); return Math.max(dx, dz) + 0.414 * Math.min(dx, dz); };
-  const heap = new MinHeap(); heap.push(h(start), start); g[start] = 0; const closed = new Uint8Array(N * N);
-  let it = 0;
+// Multi-level A*: nodes are walkable surfaces in 1 m columns (see maps.buildNav).
+// Returns waypoints [{x,y,z, ladder?}] where `ladder` marks a climb to reach that point.
+const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+function columnClear(nav, c, y0, y1) { for (const [a, b] of nav.solids[c]) if (a < y1 && b > y0) return false; return true; }
+export function nodeAt(nav, p, tol = 2) {
+  const { N, half } = nav; const i = Math.floor(p.x + half), j = Math.floor(p.z + half);
+  let best = null, bd = Infinity;
+  for (let r = 0; r <= tol; r++) {
+    for (let di = -r; di <= r; di++) for (let dj = -r; dj <= r; dj++) {
+      if (Math.max(Math.abs(di), Math.abs(dj)) !== r) continue;
+      const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= N || jj >= N) continue;
+      for (const n of nav.cellNodes[ii * N + jj]) { const h = nav.nodeH[n]; const dh = h > p.y + 0.7 ? (h - p.y) * 3 : p.y - h; const sc = dh + r * 1.2; if (sc < bd) { bd = sc; best = n; } }
+    }
+    if (best != null && bd < r + 1.5) break;
+  }
+  return best;
+}
+function neighbors(nav, n, out) {
+  out.length = 0; const { N } = nav; const c = nav.nodeCell[n]; const i = (c / N) | 0, j = c % N; const h = nav.nodeH[n];
+  for (const [di, dj] of DIRS) {
+    const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= N || jj >= N) continue;
+    const c2 = ii * N + jj; const list = nav.cellNodes[c2]; if (!list.length) continue;
+    const diag = di && dj;
+    let walk = -1, drop = -1, dropH = -Infinity;
+    for (const m of list) { const h2 = nav.nodeH[m]; if (Math.abs(h2 - h) <= 0.6) walk = m; else if (h2 < h - 0.6 && h - h2 < 9.5 && h2 > dropH && columnClear(nav, c2, h2 + 0.5, h + 1.7)) { drop = m; dropH = h2; } }
+    const tgt = walk >= 0 ? walk : drop; if (tgt < 0) continue;
+    if (diag) { // no corner cutting: both orthogonal cells must hold the same level
+      const ok = (cc) => nav.cellNodes[cc].some((m) => Math.abs(nav.nodeH[m] - h) <= 0.6 || Math.abs(nav.nodeH[m] - nav.nodeH[tgt]) <= 0.6);
+      if (!ok(ii * N + j) || !ok(i * N + jj)) continue;
+    }
+    out.push({ to: tgt, cost: (diag ? 1.414 : 1) + (walk >= 0 ? Math.abs(nav.nodeH[tgt] - h) * 0.5 : (h - nav.nodeH[tgt]) * 0.35 + 0.8) });
+  }
+  const L = nav.links.get(n); if (L) for (const l of L) out.push(l);
+  return out;
+}
+const _nb = [];
+export function findPath(nav, from, to, maxIter = 9000) {
+  const s = nodeAt(nav, from), goal = nodeAt(nav, to, 4);
+  if (s == null || goal == null) return null;
+  const M = nav.nodeH.length; const { N, half } = nav;
+  const g = new Float32Array(M).fill(Infinity); const came = new Int32Array(M).fill(-1); const via = new Map(); const closed = new Uint8Array(M);
+  const gc = nav.nodeCell[goal]; const gi = (gc / N) | 0, gj = gc % N; const gh = nav.nodeH[goal];
+  const h = (n) => { const c = nav.nodeCell[n]; const dx = Math.abs(((c / N) | 0) - gi), dz = Math.abs((c % N) - gj); return Math.max(dx, dz) + 0.414 * Math.min(dx, dz) + Math.abs(nav.nodeH[n] - gh) * 0.6; };
+  const heap = new MinHeap(); heap.push(h(s), s); g[s] = 0; let it = 0;
   while (heap.size && it++ < maxIter) {
-    const cur = heap.pop();
-    if (cur === goal) break;
-    if (closed[cur]) continue; closed[cur] = 1;
-    const i = (cur / N) | 0, j = cur % N;
-    for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
-      if (!di && !dj) continue; const ni = i + di, nj = j + dj; if (!free(ni, nj)) continue;
-      if (di && dj && (!free(i + di, j) || !free(i, j + dj))) continue;
-      const nk = ni * N + nj; const cost = g[cur] + (di && dj ? 1.414 : 1);
-      if (cost < g[nk]) { g[nk] = cost; came[nk] = cur; heap.push(cost + h(nk), nk); }
+    const cur = heap.pop(); if (cur === goal) break; if (closed[cur]) continue; closed[cur] = 1;
+    for (const e of neighbors(nav, cur, _nb)) {
+      const cost = g[cur] + e.cost;
+      if (cost < g[e.to]) { g[e.to] = cost; came[e.to] = cur; if (e.ladder) via.set(e.to, e.ladder); else via.delete(e.to); heap.push(cost + h(e.to), e.to); }
     }
   }
-  if (came[goal] === -1 && goal !== start) return null;
-  const path = []; let k = goal;
-  while (k !== -1 && k !== start) { path.push(new THREE.Vector3(((k / N) | 0) - half + 0.5, 0, (k % N) - half + 0.5)); k = came[k]; }
-  path.reverse();
-  // string-pull: drop points with clear straight lines (grid walk check)
-  const out = []; let anchor = from.clone();
-  for (let q = 0; q < path.length; q++) {
-    if (q + 1 < path.length && gridClear(nav, anchor, path[q + 1])) continue;
-    out.push(path[q]); anchor = path[q];
+  if (came[goal] === -1 && goal !== s) return null;
+  const nodes = []; let k = goal; while (k !== -1 && k !== s) { nodes.push(k); k = came[k]; } nodes.reverse();
+  const P = (n) => { const c = nav.nodeCell[n]; return { x: ((c / N) | 0) - half + 0.5, y: nav.nodeH[n], z: (c % N) - half + 0.5, n, ladder: via.get(n) || null }; };
+  // string-pull along same-level straight runs (never across climbs or level changes)
+  const out = []; let anchor = s;
+  for (let q = 0; q < nodes.length; q++) {
+    const nx = nodes[q + 1];
+    if (nx != null && !via.get(nodes[q]) && !via.get(nx) && Math.abs(nav.nodeH[nx] - nav.nodeH[anchor]) < 0.3 && Math.abs(nav.nodeH[nodes[q]] - nav.nodeH[anchor]) < 0.3 && navClear(nav, anchor, nx)) continue;
+    out.push(P(nodes[q])); anchor = nodes[q];
   }
   return out;
 }
-function nearestFree(nav, i, j) {
-  for (let r = 1; r < 6; r++) for (let di = -r; di <= r; di++) for (let dj = -r; dj <= r; dj++) { const ni = i + di, nj = j + dj; if (ni >= 0 && nj >= 0 && ni < nav.N && nj < nav.N && !nav.cells[ni * nav.N + nj]) return [ni, nj]; }
-  return null;
+export function navClear(nav, a, b) {
+  const { N, half } = nav; const ca = nav.nodeCell[a], cb = nav.nodeCell[b];
+  const ax = ((ca / N) | 0) - half + 0.5, az = (ca % N) - half + 0.5, bx = ((cb / N) | 0) - half + 0.5, bz = (cb % N) - half + 0.5;
+  let hh = nav.nodeH[a]; const d = Math.hypot(bx - ax, bz - az); const n = Math.ceil(d / 0.35);
+  for (let s = 1; s <= n; s++) {
+    const t = s / n; const x = ax + (bx - ax) * t, z = az + (bz - az) * t;
+    const i = Math.floor(x + half), j = Math.floor(z + half); if (i < 0 || j < 0 || i >= N || j >= N) return false;
+    let found = false; for (const m of nav.cellNodes[i * N + j]) if (Math.abs(nav.nodeH[m] - hh) <= 0.55) { hh = nav.nodeH[m]; found = true; break; }
+    if (!found) return false;
+  }
+  return Math.abs(hh - nav.nodeH[b]) <= 0.55;
 }
-export function gridClear(nav, a, b) {
-  const d = Math.hypot(b.x - a.x, b.z - a.z); const n = Math.ceil(d / 0.4);
-  for (let s = 0; s <= n; s++) { const t = s / Math.max(1, n); const x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t; const i = Math.floor(x + nav.half), j = Math.floor(z + nav.half); if (i < 0 || j < 0 || i >= nav.N || j >= nav.N || nav.cells[i * nav.N + j]) return false; }
-  return true;
-}
+export function randomNode(nav, rnd = Math.random) { const n = (rnd() * nav.nodeH.length) | 0; const c = nav.nodeCell[n]; return new THREE.Vector3(((c / nav.N) | 0) - nav.half + 0.5, nav.nodeH[n], (c % nav.N) - nav.half + 0.5); }
 
 // ───── bot loadouts ─────
 const ARCHETYPES = [
@@ -70,11 +101,11 @@ const ARCHETYPES = [
   { name: 'Assault', l: { 1: 'ak47', 2: 'smg', 3: 'fists', 4: 'smoke_grenade' }, range: [10, 28] },
   { name: 'Marksman', l: { 1: 'dmr', 2: 'pistol', 3: 'knife', 4: 'smoke_grenade' }, range: [25, 55] },
   { name: 'Sniper', l: { 1: 'heavy_sniper', 2: 'revolver', 3: 'katana', 4: 'flashbang', 6: 'thermal_goggles' }, range: [30, 70] },
-  { name: 'Breacher', l: { 1: 'burst_rifle', 2: 'tactical_shotgun', 3: 'sledgehammer', 4: 'frag', 6: 'blast_vest' }, range: [6, 20] },
+  { name: 'Breacher', l: { 1: 'burst_rifle', 2: 'tactical_shotgun', 3: 'sledgehammer', 4: 'land_mine', 6: 'blast_vest' }, range: [6, 20] },
   { name: 'Gunner', l: { 1: 'lmg', 2: 'burst_pistol', 3: 'bat', 4: 'molotov', 6: 'bandolier' }, range: [12, 35] },
   { name: 'Pyro', l: { 1: 'flamethrower', 2: 'sawed_off', 3: 'karambit', 4: 'molotov' }, range: [3, 9] },
   { name: 'Grenadier', l: { 1: 'grenade_launcher', 2: 'smg', 3: 'shurikens', 4: 'sticky_bomb' }, range: [10, 26] },
-  { name: 'Artillery', l: { 1: 'mortar', 2: 'pistol', 3: 'scythe', 4: 'smoke_grenade' }, range: [20, 50] },
+  { name: 'Artillery', l: { 1: 'mortar', 2: 'pistol', 3: 'scythe', 4: 'land_mine' }, range: [20, 50] },
   { name: 'Rocketeer', l: { 1: 'rocket_launcher', 2: 'crossbow', 3: 'slippers', 4: 'frag', 6: 'spring_boots' }, range: [10, 35] },
   { name: 'Reaper', l: { 1: 'assault_rifle', 2: 'taser', 3: 'scythe', 4: 'flashbang' }, range: [3, 20], melee: true },
 ];
@@ -90,133 +121,146 @@ void WEAPONS; void bySlot;
 const BOT_NAMES = ['Viper', 'Havoc', 'Rook', 'Nova', 'Talon', 'Blitz', 'Ghost', 'Mako', 'Echo', 'Jinx', 'Onyx', 'Raptor', 'Sable', 'Kilo', 'Torch', 'Mamba', 'Wraith', 'Bolt', 'Cinder', 'Frost'];
 export const botName = (i) => BOT_NAMES[i % BOT_NAMES.length] + (i >= BOT_NAMES.length ? ' ' + (1 + Math.floor(i / BOT_NAMES.length)) : '');
 
+// Deliberately beatable: ~100° view cone, real occlusion (walls, smoke, flash blindness),
+// slow reactions, sloppy aim that improves the longer a target stays in view.
+const VIEW_COS = Math.cos(THREE.MathUtils.degToRad(52));
 export class BotBrain {
-  constructor(game, actor, info, skill = 0.6) {
+  constructor(game, actor, info, skill = 0.4) {
     this.g = game; this.a = actor; this.info = info; this.skill = skill;
-    this.state = 'roam'; this.target = null; this.lastSeen = null; this.lastSeenT = 0; this.seenFor = 0;
+    this.state = 'roam'; this.target = null; this.lastSeen = null; this.lastSeenT = -99; this.seenFor = 0; this.visible = false;
     this.path = null; this.pathGoal = null; this.pathT = 0; this.goal = null;
-    this.think_t = Math.random() * 0.1; this.strafe = 1; this.strafeT = 0; this.stuckT = 0; this.lastPos = actor.pos.clone();
-    this.aimErr = V(); this.wantSlot = 1; this.throwT = 0; this.throwing = 0; this.dodge = null; this.frozen = false;
-    this.intent = { wish: V(), jumpPressed: false, fire: false, firePressed: false, alt: false, altPressed: false, reload: false };
-    this.prevFire = false; this.coverT = 0; this.reactT = 0; this.hearT = 0;
+    this.think_t = Math.random() * 0.15; this.strafe = 1; this.strafeT = 0; this.stuckT = 0; this.lastPos = actor.pos.clone();
+    this.aimErr = V(); this.wantSlot = 1; this.throwT = 3 + Math.random() * 6; this.throwing = 0; this.dodge = null; this.frozen = false;
+    this.intent = { wish: V(), climb: null, jumpPressed: false, fire: false, firePressed: false, alt: false, altPressed: false, reload: false };
+    this.prevFire = false; this.coverT = 0; this.reactT = 0; this.mineT = 8 + Math.random() * 10; this.switchT = 0; this.sprayT = 0;
   }
 
   canSee(t) {
-    const a = this.a; if (!t.alive || a.fx.flash > 0.3) return false;
+    const a = this.a; if (!t.alive || a.fx.flash > 0) return false;           // flashbanged = blind
     const eye = a.eye(_a); const tc = t.chest(_b);
-    const d = eye.distanceTo(tc); if (d > 75) return false;
-    const fwd = a.aimDir(V()); const to = V().subVectors(tc, eye).normalize();
-    if (fwd.dot(to) < -0.1 && d > 6) return false; // ~190° awareness cone
-    if (!this.g.map.world.lineOfSight(eye, tc) && !this.g.map.world.lineOfSight(eye, t.headPos(V()))) return false;
-    const thermal = a.thermal.on;
-    if (!thermal && this.g.combat.inSmoke(eye, tc)) return false;
+    const d = eye.distanceTo(tc); if (d > 60) return false;
+    const to = V().subVectors(tc, eye).divideScalar(d);
+    const fwd = a.aimDir(V());
+    // view cone (plus a tiny "hear footsteps" bubble right behind them)
+    if (fwd.dot(to) < VIEW_COS && !(d < 2.2 && Math.hypot(t.vel.x, t.vel.z) > 3)) return false;
+    const w = this.g.map.world;
+    if (!w.lineOfSight(eye, tc) && !w.lineOfSight(eye, t.headPos(V()))) return false;
+    if (!a.thermal.on && this.g.combat.inSmoke(eye, tc)) return false;
+    // far + crouched in shadows of distance: needs a moment to notice
     return true;
   }
 
   think(dt) {
     const a = this.a, g = this.g;
     if (!a.alive || this.frozen) return;
-    // ── dangers (live grenades, stickies, mortar rings, fire)
+    // ── dangers: only grenades/fire the bot can actually see
     this.dodge = null;
-    for (const p of g.combat.projs) {
-      if (!['frag', 'gl_shell', 'sticky', 'mortar_shell', 'molotov'].includes(p.kind) || p.owner === a || !g.hostile(p.owner, a)) continue;
-      const pos = p.kind === 'mortar_shell' && p.target ? p.target : p.pos;
-      const r = (p.def.splash?.radius || 4.5) + 1.5;
-      if (pos.distanceTo(a.pos) < r && (p.kind !== 'mortar_shell' || p.t > (p.ringAt ?? 0) - 0.3)) { this.dodge = V().subVectors(a.pos, pos).setY(0).normalize(); if (this.dodge.lengthSq() < 0.1) this.dodge.set(1, 0, 0); break; }
+    if (a.fx.flash <= 0) {
+      for (const p of g.combat.projs) {
+        if (!['frag', 'gl_shell', 'sticky', 'molotov'].includes(p.kind) || p.owner === a || !g.hostile(p.owner, a)) continue;
+        const r = (p.def.splash?.radius || 4.5) + 1;
+        if (p.pos.distanceTo(a.pos) < r && g.map.world.lineOfSight(a.eye(_a), p.pos) && Math.random() < 0.6 + this.skill * 0.4) { this.dodge = V().subVectors(a.pos, p.pos).setY(0).normalize(); if (this.dodge.lengthSq() < 0.1) this.dodge.set(1, 0, 0); break; }
+      }
+      for (const f of g.combat.fires) if (f.pos.distanceTo(a.pos) < f.radius + 0.5 && g.hostile(f.owner, a)) this.dodge = V().subVectors(a.pos, f.pos).setY(0).normalize();
     }
-    for (const f of g.combat.fires) if (f.pos.distanceTo(a.pos) < f.radius + 1 && g.hostile(f.owner, a)) this.dodge = V().subVectors(a.pos, f.pos).setY(0).normalize();
-    // ── thermal: bots wearing goggles switch them on when smoke is around
     if (a.hasWear('thermal_goggles')) { const wantOn = g.combat.clouds.length > 0 && a.thermal.battery > 1; if (wantOn !== a.thermal.on) a.thermal.on = wantOn; }
     // ── perception
     let best = null, bd = Infinity;
     for (const t of g.actors) {
-      if (t === a || !t.alive || !g.hostile(a, t)) continue;
+      if (t === a || !t.alive || !g.hostile(a, t) || t.isTarget) continue;
       const d = t.pos.distanceTo(a.pos);
       if (d < bd && this.canSee(t)) { best = t; bd = d; }
     }
     if (best) {
-      if (best !== this.target) { this.reactT = 0.18 + (1 - this.skill) * 0.35; this.seenFor = 0; }
-      this.target = best; this.lastSeen = best.pos.clone(); this.lastSeenT = g.time;
-    } else if (this.target && g.time - this.lastSeenT > 4) this.target = null;
-    // heard gunfire / got hurt → turn toward the attacker
-    if (!best && a.lastAttacker && g.time - a.lastHurt < 1 && a.lastAttacker.alive) { this.lastSeen = a.lastAttacker.pos.clone(); this.lastSeenT = g.time; this.target = a.lastAttacker; }
-    const visible = !!best;
-    // ── state
+      if (best !== this.target || !this.visible) { this.reactT = 0.45 + (1 - this.skill) * 0.6 + Math.random() * 0.25; this.seenFor = 0; }
+      this.seenFor += dt; this.target = best; this.lastSeen = best.pos.clone(); this.lastSeenT = g.time;
+    } else if (this.target && g.time - this.lastSeenT > 5) this.target = null;
+    this.visible = !!best;
+    // got shot by someone unseen → look toward where it came from (no wallhack: just investigate)
+    if (!best && a.lastAttacker && g.time - a.lastHurt < 0.2 && a.lastAttacker.alive && !this.lastSeen) { this.lastSeen = a.lastAttacker.pos.clone().add(V((Math.random() - 0.5) * 6, 0, (Math.random() - 0.5) * 6)); this.lastSeenT = g.time; this.target = a.lastAttacker; }
+    const visible = this.visible;
     const hpFrac = (a.hp + a.armor) / a.maxHp;
-    const tgt = this.target;
-    const dist = tgt ? tgt.pos.distanceTo(a.pos) : Infinity;
+    const tgt = this.target; const dist = tgt ? tgt.pos.distanceTo(a.pos) : Infinity;
     let state = 'roam';
-    if (this.dodge) state = 'dodge';
-    else if (tgt && hpFrac < 0.4 && visible && !this.info.melee && dist > 6) state = 'cover';
+    if (a.fx.flash > 0) state = 'blind';
+    else if (this.dodge) state = 'dodge';
+    else if (tgt && hpFrac < 0.35 && visible && !this.info.melee && dist > 6) state = 'cover';
     else if (tgt && visible) state = 'engage';
     else if (tgt && this.lastSeen) state = g.combat.clouds.some((c) => c.pos.distanceTo(this.lastSeen) < c.radius) ? 'smoke' : 'hunt';
     this.state = state;
-    // ── weapon choice (loadout-aware)
+    // ── weapon choice: bots actively swap between primary / secondary / melee / throwables / usables
     const wsOf = (s) => a.weapons[s];
-    let slot = 1; const pw = wsOf(1);
-    const pdef = pw?.def;
-    if (this.info.melee && dist < 7) slot = 3;
-    else if (pdef && (pdef.kind === 'mortar' || pdef.id === 'rocket_launcher') && dist < (pdef.kind === 'mortar' ? 14 : 6)) slot = 2;
-    else if (pdef && pdef.kind === 'flame' && dist > 14) slot = 2;
-    else if (pw && pw.mag === 0 && pw.reserve === 0) slot = 2;
-    else if (pw && pw.mag === 0 && dist < 10 && wsOf(2)?.mag > 0) slot = 2;
-    if (dist < 2.4 && wsOf(3) && wsOf(3).def.kind === 'melee' && !(pdef?.kind === 'pellet')) slot = 3;
-    if (state === 'cover' && wsOf(5) && wsOf(5).usableCd <= 0 && !visible) slot = 5;
-    if (hpFrac < 0.55 && !visible && wsOf(5) && wsOf(5).def.heal && wsOf(5).usableCd <= 0) slot = 5;
-    // grenade usage
-    this.throwT -= dt;
+    const pw = wsOf(1), pdef = pw?.def, sw = wsOf(2);
+    let slot = this.wantSlot || 1;
+    const primaryOk = pw && (pw.mag > 0 || pw.reserve > 0);
+    const closeBad = pdef && ((pdef.kind === 'mortar' && dist < 14) || ((pdef.base || pdef.id) === 'rocket_launcher' && dist < 5) || ((pdef.base || pdef.id) === 'heavy_sniper' && dist < 8));
+    if (!tgt) slot = primaryOk ? 1 : 2;
+    else if (this.info.melee && dist < 7 && wsOf(3)?.def.kind === 'melee') slot = 3;
+    else if (closeBad && sw) slot = 2;
+    else if (pdef?.kind === 'flame' && dist > pdef.range + 4 && sw) slot = 2;
+    else if (!primaryOk) slot = sw && (sw.mag > 0 || sw.reserve > 0 || sw.def.recharge) ? 2 : 3;
+    else if (pw.mag === 0 && pw.reloading > 0 && dist < 14 && sw?.mag > 0) slot = 2;   // quick-swap instead of reloading under fire
+    else if (slot === 2 && sw && sw.mag === 0 && pw.mag > 0) slot = 1;
+    else if (slot !== 2 || dist > 16) slot = 1;
+    if (dist < 2.2 && wsOf(3)?.def.kind === 'melee' && pdef?.kind !== 'pellet' && pdef?.kind !== 'flame') slot = 3;
+    if (!visible && wsOf(5) && wsOf(5).usableCd <= 0 && ((wsOf(5).def.heal && hpFrac < 0.55) || (wsOf(5).def.armor && a.armor < 10) || state === 'cover')) slot = 5;
+    // grenades / mines
+    this.throwT -= dt; this.mineT -= dt;
     const tw = wsOf(4);
-    if (tw && tw.count > 0 && this.throwT <= 0 && tgt && this.lastSeen && dist > 8 && dist < 26 && Math.random() < 0.12 + (state === 'smoke' ? 0.25 : 0)) {
-      this.throwing = 1.2; this.throwT = 6 + Math.random() * 6;
-    }
+    if (tw && tw.count > 0 && !tw.def.mine && this.throwT <= 0 && tgt && this.lastSeen && dist > 8 && dist < 24 && Math.random() < 0.08 + (state === 'smoke' ? 0.2 : 0)) { this.throwing = 1.2; this.throwT = 9 + Math.random() * 9; }
+    if (tw && tw.count > 0 && tw.def.mine && this.mineT <= 0 && !visible && a.onGround) { this.throwing = 1.0; this.mineT = 14 + Math.random() * 12; this.placingMine = true; }
     if (this.throwing > 0) slot = 4;
-    this.wantSlot = slot;
+    if (slot !== this.wantSlot) { if (g.time > this.switchT) { this.wantSlot = slot; this.switchT = g.time + 0.6; } }
     // ── movement goal
     if (state === 'engage') {
       const [near, far] = this.info.range;
       if (dist > far) this.goal = tgt.pos.clone();
       else if (dist < near && !this.info.melee) this.goal = a.pos.clone().addScaledVector(V().subVectors(a.pos, tgt.pos).setY(0).normalize(), 4);
-      else this.goal = null; // hold + strafe
-      if (this.info.melee && slot === 3) this.goal = tgt.pos.clone();
+      else this.goal = null;
+      if (this.wantSlot === 3) this.goal = tgt.pos.clone();
     } else if (state === 'cover') {
       if (!this.coverPos || g.time > this.coverT) { this.coverPos = this.findCover(tgt); this.coverT = g.time + 3; }
       this.goal = this.coverPos;
     } else if (state === 'hunt') this.goal = this.lastSeen;
     else if (state === 'smoke') {
-      // don't walk into the smoke: hold at the edge, flank around
       const c = g.combat.clouds.find((cl) => cl.pos.distanceTo(this.lastSeen) < cl.radius);
       if (c) { const away = V().subVectors(a.pos, c.pos).setY(0); const side = V(-away.z, 0, away.x).normalize(); this.goal = c.pos.clone().addScaledVector(away.normalize(), c.radius + 3).addScaledVector(side, 6 * this.strafe); }
-    } else if (state === 'roam') {
-      if (!this.goal || a.pos.distanceTo(this.goal) < 2 || Math.random() < 0.01) this.goal = this.pickRoam();
+    } else if (state === 'blind') this.goal = null;
+    else if (state === 'roam') {
+      if (!this.goal || a.pos.distanceTo(this.goal) < 2 || Math.random() < 0.006) this.goal = this.pickRoam();
+      if (this.lastSeen && g.time - this.lastSeenT > 5) this.lastSeen = null;
     }
     // ── path
     this.pathT -= dt;
     if (this.goal && (this.pathT <= 0 || !this.path || !this.pathGoal || this.pathGoal.distanceTo(this.goal) > 3)) {
-      this.path = findPath(g.map.nav, a.pos, this.goal); this.pathGoal = this.goal.clone(); this.pathT = 1.5 + Math.random();
+      this.path = findPath(g.map.nav, a.pos, this.goal); this.pathGoal = this.goal.clone(); this.pathT = 1.8 + Math.random();
+      if (!this.path && state === 'roam') this.goal = null;
     }
     if (!this.goal) this.path = null;
-    // aim error (re-rolled per think)
-    const err = (1 - this.skill) * 0.9 + 0.08;
-    this.aimErr.set((Math.random() - 0.5) * err, (Math.random() - 0.5) * err * 0.6, (Math.random() - 0.5) * err);
-    this.strafeT -= dt; if (this.strafeT <= 0) { this.strafe = Math.random() < 0.5 ? -1 : 1; this.strafeT = 0.6 + Math.random() * 1.4; }
+    // aim error: large at first sight, tightens with time on target
+    const settle = Math.max(0.35, 1.4 - this.seenFor * 0.5);
+    const err = ((1 - this.skill) * 1.3 + 0.25) * settle;
+    this.aimErr.set((Math.random() - 0.5) * err, (Math.random() - 0.5) * err * 0.7, (Math.random() - 0.5) * err);
+    this.strafeT -= dt; if (this.strafeT <= 0) { this.strafe = Math.random() < 0.5 ? -1 : 1; this.strafeT = 0.8 + Math.random() * 1.6; }
   }
 
   findCover(tgt) {
-    const g = this.g, a = this.a, nav = g.map.nav; let best = null, bd = Infinity;
+    const g = this.g, a = this.a; let best = null, bd = Infinity;
     const teye = tgt.eye(V());
-    for (let k = 0; k < 40; k++) {
+    for (let k = 0; k < 30; k++) {
       const ang = Math.random() * Math.PI * 2, r = 3 + Math.random() * 9;
-      const x = a.pos.x + Math.cos(ang) * r, z = a.pos.z + Math.sin(ang) * r;
-      const i = Math.floor(x + nav.half), j = Math.floor(z + nav.half);
-      if (i < 0 || j < 0 || i >= nav.N || j >= nav.N || nav.cells[i * nav.N + j]) continue;
-      const p = V(x, 1.4, z);
-      if (g.map.world.lineOfSight(teye, p)) continue;
-      const d = r + V(x, 0, z).distanceTo(tgt.pos) * -0.15;
-      if (d < bd) { bd = d; best = V(x, 0, z); }
+      const p = V(a.pos.x + Math.cos(ang) * r, a.pos.y, a.pos.z + Math.sin(ang) * r);
+      const n = nodeAt(g.map.nav, p, 1); if (n == null) continue;
+      const c = g.map.nav.nodeCell[n]; const N = g.map.nav.N; p.set(((c / N) | 0) - g.map.nav.half + 0.5, g.map.nav.nodeH[n], (c % N) - g.map.nav.half + 0.5);
+      if (g.map.world.lineOfSight(teye, V(p.x, p.y + 1.4, p.z))) continue;
+      const d = r - p.distanceTo(tgt.pos) * 0.15;
+      if (d < bd) { bd = d; best = p; }
     }
     return best || this.pickRoam();
   }
   pickRoam() {
+    // mix of spawn-area roaming and wandering anywhere on the multi-level nav (upstairs, roofs, bridges)
+    if (Math.random() < 0.6) return randomNode(this.g.map.nav);
     const sp = this.g.map.spawns.ffa; const p = sp[(Math.random() * sp.length) | 0];
     return p.clone().add(V((Math.random() - 0.5) * 6, 0, (Math.random() - 0.5) * 6));
   }
@@ -224,45 +268,54 @@ export class BotBrain {
   // per-tick control → intent
   control(dt) {
     const a = this.a, g = this.g, it = this.intent;
-    it.jumpPressed = false; it.firePressed = false; it.altPressed = false; it.reload = false; it.alt = false;
+    it.jumpPressed = false; it.firePressed = false; it.altPressed = false; it.reload = false; it.alt = false; it.climb = null;
     it.wish.set(0, 0, 0);
     if (!a.alive || this.frozen) { it.fire = false; return it; }
-    this.think_t -= dt; if (this.think_t <= 0) { this.think_t = 0.1; this.think(0.1); }
+    this.think_t -= dt; if (this.think_t <= 0) { this.think_t = 0.15; this.think(0.15); }
     if (this.wantSlot !== a.slot && a.weapons[this.wantSlot]) a.switchSlot(this.wantSlot);
-    // movement
+    // movement along the path (handles stairs, drops and ladders)
     const wish = V();
-    if (this.dodge) wish.copy(this.dodge);
+    if (this.state === 'blind') { wish.set(-Math.sin(a.yaw + Math.sin(g.time * 3) * 2), 0, -Math.cos(a.yaw + Math.sin(g.time * 3) * 2)).multiplyScalar(0.5); }
+    else if (this.dodge) wish.copy(this.dodge);
     else if (this.path && this.path.length) {
       let wp = this.path[0];
-      if (Math.hypot(wp.x - a.pos.x, wp.z - a.pos.z) < 0.7) { this.path.shift(); wp = this.path[0]; }
-      if (wp) wish.set(wp.x - a.pos.x, 0, wp.z - a.pos.z).normalize();
+      const reached = (w) => Math.hypot(w.x - a.pos.x, w.z - a.pos.z) < (w.ladder ? 0.9 : 0.7) && Math.abs(w.y - a.pos.y) < 1.2;
+      while (wp && reached(wp)) { this.path.shift(); wp = this.path[0]; this.wpT = 0; }
+      this.wpT = (this.wpT || 0) + dt;
+      if (wp && this.wpT > (wp.ladder ? 6 : 4)) { this.wpT = 0; this.fails = (this.fails || 0) + 1; this.path = null; this.pathT = 0; if (this.fails > 2) { this.goal = null; this.fails = 0; } wp = null; }
+      if (wp) {
+        if (wp.ladder && a.pos.y < wp.y - 0.3) {
+          const lx = wp.ladder.x - a.pos.x, lz = wp.ladder.z - a.pos.z; const l = Math.hypot(lx, lz) || 1;
+          wish.set(lx / l, 0, lz / l); it.climb = wish.clone();
+          if (a.climbing && l < 0.9) wish.set(wp.x - a.pos.x, 0, wp.z - a.pos.z).normalize().multiplyScalar(0.3);
+        } else wish.set(wp.x - a.pos.x, 0, wp.z - a.pos.z).normalize();
+      }
     }
-    const tgt = this.target; const visible = !!tgt && g.time - this.lastSeenT < 0.25;
-    if (this.state === 'engage' && tgt) {
+    const tgt = this.target; const visible = this.visible && !!tgt && g.time - this.lastSeenT < 0.3;
+    if (this.state === 'engage' && tgt && !a.climbing) {
       const toT = V().subVectors(tgt.pos, a.pos).setY(0).normalize(); const side = V(-toT.z, 0, toT.x);
-      wish.addScaledVector(side, this.strafe * (this.goal ? 0.4 : 0.9));
+      wish.addScaledVector(side, this.strafe * (this.goal ? 0.35 : 0.7));
       if (wish.lengthSq() > 0) wish.normalize();
     }
-    // stuck detection
+    // stuck → hop + repath
     const moved = a.pos.distanceTo(this.lastPos); this.lastPos.copy(a.pos);
-    if (wish.lengthSq() > 0.1 && moved < 0.02 && a.onGround) { this.stuckT += dt; if (this.stuckT > 0.6) { it.jumpPressed = true; this.pathT = 0; this.strafe *= -1; this.stuckT = 0; wish.add(V(-wish.z, 0, wish.x).multiplyScalar(this.strafe)).normalize(); } } else this.stuckT = 0;
-    if (this.dodge && a.onGround && Math.random() < 0.03) it.jumpPressed = true;
+    if (wish.lengthSq() > 0.1 && moved < 0.02 && a.onGround && !a.climbing) { this.stuckT += dt; if (this.stuckT > 0.7) { it.jumpPressed = true; this.pathT = 0; this.strafe *= -1; this.stuckT = 0; wish.add(V(-wish.z, 0, wish.x).multiplyScalar(this.strafe)).normalize(); } } else this.stuckT = 0;
     it.wish.copy(wish);
     // aim
     let aimPt = null;
-    if (tgt && (this.state === 'engage' || this.throwing > 0)) {
+    if (tgt && visible && (this.state === 'engage' || this.throwing > 0)) {
       const ws = a.ws;
-      aimPt = (ws?.def.kind === 'mortar') ? tgt.pos.clone() : (Math.random() < this.skill * 0.35 ? tgt.headPos(V()) : tgt.chest(V()).add(V(0, -0.15, 0)));
-      // lead moving targets for slow projectiles
-      if (ws && (ws.def.kind === 'projectile') && ws.def.vel) aimPt.addScaledVector(tgt.vel, a.pos.distanceTo(tgt.pos) / ws.def.vel);
+      aimPt = (ws?.def.kind === 'mortar') ? tgt.pos.clone() : (Math.random() < this.skill * 0.2 ? tgt.headPos(V()) : tgt.chest(V()).add(V(0, -0.15, 0)));
+      if (ws && ws.def.kind === 'projectile' && ws.def.vel) aimPt.addScaledVector(tgt.vel, (a.pos.distanceTo(tgt.pos) / ws.def.vel) * this.skill);
       if (ws?.def.kind === 'throwable' || ws?.def.proj === 'gl_shell') aimPt.y += a.pos.distanceTo(tgt.pos) * 0.12;
-      aimPt.addScaledVector(this.aimErr, Math.min(2, 0.4 + a.pos.distanceTo(tgt.pos) * 0.03));
-    } else if (this.lastSeen && (this.state === 'hunt' || this.state === 'smoke')) aimPt = this.lastSeen.clone().setY(this.lastSeen.y + 1.3);
+      aimPt.addScaledVector(this.aimErr, Math.min(2.4, 0.5 + a.pos.distanceTo(tgt.pos) * 0.035));
+    } else if (this.placingMine && this.throwing > 0) aimPt = a.eye(V()).add(a.forward(V()).multiplyScalar(2)).setY(a.pos.y);
+    else if (this.lastSeen && (this.state === 'hunt' || this.state === 'smoke')) aimPt = this.lastSeen.clone().setY(this.lastSeen.y + 1.3);
     else if (wish.lengthSq() > 0) aimPt = a.eye(V()).addScaledVector(wish, 10);
-    if (aimPt) {
+    if (aimPt && this.state !== 'blind') {
       const d = V().subVectors(aimPt, a.eye(V()));
       const yaw = Math.atan2(-d.x, -d.z), pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
-      const turn = (4 + this.skill * 8) * dt;
+      const turn = (2.6 + this.skill * 3.5) * dt;
       let dy = yaw - a.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
       a.yaw += THREE.MathUtils.clamp(dy, -turn, turn); a.pitch += THREE.MathUtils.clamp(pitch - a.pitch, -turn, turn);
     }
@@ -274,26 +327,24 @@ export class BotBrain {
       const d = a.pos.distanceTo(tgt.pos);
       const aimDot = a.aimDir(V()).dot(V().subVectors(tgt.chest(V()), a.eye(V())).normalize());
       const inRange = ws.def.kind === 'melee' ? d < ws.def.reach + 0.6 : ws.def.range ? d < ws.def.range * 1.05 : true;
-      if (aimDot > 0.94 && inRange && ws.def.kind !== 'usable' && ws.def.kind !== 'throwable') fire = true;
+      if (aimDot > 0.95 && inRange && ws.def.kind !== 'usable' && ws.def.kind !== 'throwable') fire = true;
+      // bursts with pauses instead of laser-holding the trigger
+      if (ws.def.mode === 'auto') { this.sprayT += dt; if (this.sprayT > 0.6 + this.skill) { fire = false; if (this.sprayT > 0.95 + this.skill) this.sprayT = 0; } }
       if (ws.def.scope && d > 20) it.alt = true;
     }
     if (this.state === 'smoke' && ws && ws.def.kind === 'flame' && this.lastSeen && a.pos.distanceTo(this.lastSeen) < 14) fire = true;
-    if (this.state === 'smoke' && ws && ws.def.mode === 'auto' && Math.random() < 0.05) fire = true; // suppress into smoke
     if (a.slot === 5 && ws && ws.useT < 0 && ws.usableCd <= 0) { fire = !this.prevFire; }
-    // grenade: hold briefly then release
     if (this.throwing > 0) {
       this.throwing -= dt;
       if (a.slot === 4 && a.drawT <= 0) fire = this.throwing > 0.55;
-      if (this.throwing <= 0) this.throwing = 0;
+      if (this.throwing <= 0) { this.throwing = 0; this.placingMine = false; }
     }
     if (ws && ws.def.kind !== 'melee' && ws.mag === 0 && ws.reloading <= 0 && !fire) it.reload = true;
-    // semi-auto cadence
     const semi = ws && ws.def.mode !== 'auto' && ws.def.kind !== 'throwable';
-    if (semi && fire && this.prevFire) { fire = false; }
+    if (semi && fire && this.prevFire) fire = false;
     it.firePressed = fire && !this.prevFire; it.fire = fire;
     this.prevFire = fire;
-    // scythe ability when charging in
-    if (ws?.def.ability && tgt && a.pos.distanceTo(tgt.pos) > 5 && a.pos.distanceTo(tgt.pos) < 16 && a.fx.scytheCd <= 0) it.altPressed = true;
+    if (ws?.def.ability && tgt && visible && a.pos.distanceTo(tgt.pos) > 5 && a.pos.distanceTo(tgt.pos) < 16 && a.fx.scytheCd <= 0) it.altPressed = true;
     return it;
   }
 }

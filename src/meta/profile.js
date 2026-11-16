@@ -1,6 +1,6 @@
 // Persistent player profile: coins, permanent unlocks, 1-match ad trials, kill-milestone skins,
-// daily quests (seeded by date), monthly rank badge. Stored in localStorage.
-import { WEAPONS, WEAPON_BY_ID, DEFAULT_LOADOUT, SLOT_ACCESS_PRICE, SKIN_TIERS } from '../data/weapons.js';
+// daily quests (seeded by date), permanent rank (points from wins). Stored in localStorage.
+import { WEAPONS, WEAPON_BY_ID, DEFAULT_LOADOUT, SLOT_ACCESS_PRICE, SKIN_TIERS, SHOP_SKINS } from '../data/weapons.js';
 
 const KEY = 'firestorm-surge-profile-v1';
 
@@ -16,14 +16,18 @@ const QUEST_POOL = [
   { id: 'throw5', text: 'Throw 5 throwables', stat: 'throws', goal: 5, reward: 45 },
 ];
 
+// Permanent rank, stored locally. Points come from WINNING matches (1v1, 2v2, FFA, team games).
 export const RANKS = [
-  { id: 'bronze', name: 'Bronze', min: 0, color: '#c58040' },
+  { id: 'recruit', name: 'Recruit', min: 0, color: '#9aa4ae' },
+  { id: 'bronze', name: 'Bronze', min: 100, color: '#c58040' },
   { id: 'silver', name: 'Silver', min: 300, color: '#c8d0d8' },
-  { id: 'gold', name: 'Gold', min: 900, color: '#ffcc33' },
-  { id: 'platinum', name: 'Platinum', min: 2000, color: '#7fe8e0' },
-  { id: 'diamond', name: 'Diamond', min: 4000, color: '#8fb8ff' },
-  { id: 'firestorm', name: 'Firestorm', min: 7000, color: '#ff5a2a' },
+  { id: 'gold', name: 'Gold', min: 650, color: '#ffcc33' },
+  { id: 'platinum', name: 'Platinum', min: 1100, color: '#7fe8e0' },
+  { id: 'diamond', name: 'Diamond', min: 1700, color: '#8fb8ff' },
+  { id: 'master', name: 'Master', min: 2500, color: '#d070ff' },
+  { id: 'legend', name: 'Firestorm Legend', min: 3600, color: '#ff5a2a' },
 ];
+export const WIN_POINTS = { '1v1': 60, '2v2': 70, ffa: 90, red_vs_blue: 50 };
 
 const today = () => new Date().toISOString().slice(0, 10);
 const month = () => new Date().toISOString().slice(0, 7);
@@ -33,7 +37,7 @@ function fresh() {
   return {
     name: 'Player' + Math.floor(1000 + Math.random() * 9000),
     coins: 300, owned: WEAPONS.filter((w) => w.free && !w.slotFree).map((w) => w.id), slots: { 5: false, 6: false },
-    loadout: { ...DEFAULT_LOADOUT }, weaponKills: {}, skinSel: {}, totals: { kills: 0, deaths: 0, matches: 0, wins: 0 },
+    loadout: { ...DEFAULT_LOADOUT }, weaponKills: {}, skinSel: {}, skinsOwned: [], totals: { kills: 0, deaths: 0, matches: 0, wins: 0 },
     quests: null, rank: { month: month(), points: 0 }, settings: { sens: 1, volume: 0.7, fov: 80, holiday: 'auto', quality: 'high' },
   };
 }
@@ -69,7 +73,7 @@ class Profile {
   }
   grantTrial(key) { this.trials.add(key); }
   clearTrials() { this.trials.clear(); }
-  unlockAll() { this.d.owned = WEAPONS.map((w) => w.id); this.d.slots = { 5: true, 6: true }; this.save(); }
+  unlockAll() { this.d.owned = WEAPONS.map((w) => w.id); this.d.slots = { 5: true, 6: true }; this.d.skinsOwned = SHOP_SKINS.map((s) => s.id); this.save(); }
   equip(slot, id) { this.d.loadout[slot] = id; this.save(); }
 
   // the loadout actually usable this match
@@ -81,7 +85,9 @@ class Profile {
 
   // ─── skins ───
   kills(id) { return this.d.weaponKills[id] || 0; }
-  unlockedSkins(id) { const k = this.kills(id); return SKIN_TIERS.filter((t) => k >= t.kills).map((t) => t.id); }
+  unlockedSkins(id) { const k = this.kills(id); return [...SKIN_TIERS.filter((t) => k >= t.kills).map((t) => t.id), ...(this.d.skinsOwned || [])]; }
+  ownsSkin(sk) { return (this.d.skinsOwned || []).includes(sk); }
+  buySkin(sk) { const s = SHOP_SKINS.find((x) => x.id === sk); if (!s || this.ownsSkin(sk) || this.d.coins < s.price) return false; this.d.coins -= s.price; (this.d.skinsOwned ||= []).push(sk); this.save(); return true; }
   skinFor(id) { const s = this.d.skinSel[id]; return s && this.unlockedSkins(id).includes(s) ? s : null; }
   setSkin(id, skin) { this.d.skinSel[id] = skin; this.save(); }
   addWeaponKill(id) { this.d.weaponKills[id] = (this.d.weaponKills[id] || 0) + 1; const t = SKIN_TIERS.find((x) => x.kills === this.d.weaponKills[id]); return t || null; }
@@ -105,9 +111,9 @@ class Profile {
   claimQuest(id) { const q = this.d.quests.list.find((x) => x.id === id); if (!q || !q.done || q.claimed) return 0; q.claimed = true; this.addCoins(q.reward); return q.reward; }
 
   // ─── rank ───
-  ensureRank() { if (!this.d.rank || this.d.rank.month !== month()) { this.d.rank = { month: month(), points: 0 }; this.save(); } }
-  addRank(n) { this.ensureRank(); this.d.rank.points = Math.max(0, this.d.rank.points + n); this.save(); }
-  rank() { this.ensureRank(); const p = this.d.rank.points; let r = RANKS[0]; for (const x of RANKS) if (p >= x.min) r = x; const next = RANKS[RANKS.indexOf(r) + 1]; return { ...r, points: p, next }; }
+  ensureRank() { if (this.d.rankPts == null) { this.d.rankPts = this.d.rank?.points || 0; this.save(); } }
+  addRank(n) { this.ensureRank(); const before = this.rank().id; this.d.rankPts = Math.max(0, this.d.rankPts + n); this.d.totals.rankWins = (this.d.totals.rankWins || 0) + (n > 0 ? 1 : 0); this.save(); return this.rank().id !== before; }
+  rank() { this.ensureRank(); const p = this.d.rankPts; let r = RANKS[0]; for (const x of RANKS) if (p >= x.min) r = x; const next = RANKS[RANKS.indexOf(r) + 1]; return { ...r, points: p, next, frac: next ? (p - r.min) / (next.min - r.min) : 1 }; }
 }
 
 export const profile = new Profile();

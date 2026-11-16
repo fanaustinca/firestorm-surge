@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { makeMaterials, P, rbox, cylY, cylZ, sphere, latheZ, shadowAll } from './modelKit.js';
 import { GUN_BUILDERS } from './gunModels.js';
 import { GEAR_BUILDERS, starGeo, slipperMesh, glove } from './gearModels.js';
+import { ULTRA_BUILDERS } from './ultraModels.js';
 import { HOLIDAY_SKINS } from '../data/weapons.js';
 
 const matCache = new Map();
@@ -11,7 +12,7 @@ export function mats(skin = null) {
   return matCache.get(k);
 }
 
-export const BUILDERS = { ...GUN_BUILDERS, ...GEAR_BUILDERS };
+export const BUILDERS = { ...GUN_BUILDERS, ...GEAR_BUILDERS, ...ULTRA_BUILDERS };
 
 let holidayMode = 'auto'; // 'auto' | 'on' | 'off'
 export function setHolidayMode(v) { holidayMode = v; }
@@ -25,7 +26,8 @@ export function holidayFor(id, date = new Date()) {
 export function buildItem(id, { skin = null, holiday } = {}) {
   const b = BUILDERS[id];
   if (!b) throw new Error('No model for ' + id);
-  const g = b(mats(skin), { holiday: holiday === undefined ? holidayFor(id) : holiday });
+  const ultra = id.endsWith('_ultra');
+  const g = b(mats(ultra ? 'ultra' : skin), { holiday: ultra ? null : holiday === undefined ? holidayFor(id) : holiday });
   g.name = id;
   shadowAll(g);
   return g;
@@ -51,6 +53,7 @@ export function projectileMesh(kind) {
       case 'bolt': P(g, cylZ(0.004, 0.004, 0.36, 6), m.polymer); P(g, new THREE.ConeGeometry(0.01, 0.04, 4).rotateX(-Math.PI / 2), m.steel, 0, 0, -0.2); break;
       case 'shuriken': P(g, starGeo(), new THREE.MeshStandardMaterial({ color: 0xc8d0d8, metalness: 1, roughness: 0.18 })); break;
       case 'slipper': g.add(slipperMesh(m)); break;
+      case 'mine': g.add(buildItem('land_mine')); break;
       case 'taser': P(g, cylZ(0.006, 0.006, 0.03, 6), m.glowBlue); break;
       default: { const item = buildItem({ frag: 'frag', smoke: 'smoke_grenade', molotov: 'molotov', flash: 'flashbang', sticky: 'sticky_bomb' }[kind] || 'frag'); g.add(item); }
     }
@@ -115,46 +118,110 @@ export function buildSoldier(team = 'red', variant = 0) {
   parts.legR = leg(1); parts.legL = leg(-1);
   const weaponMount = new THREE.Group(); weaponMount.name = 'weaponMount'; parts.armR.hand.add(weaponMount);
   parts.weaponMount = weaponMount;
+  // chest gun mount: grip just right of the sternum, at shoulder-pocket height
+  const gunMount = new THREE.Group(); gunMount.name = 'gunMount'; gunMount.position.set(0.1, 0.32, -0.2); torso.add(gunMount); parts.gunMount = gunMount;
   root.userData.parts = parts;
   root.userData.mats = { teamMat, visor, fatigue, vestMat, skin, helm };
   shadowAll(root);
   return root;
 }
 
-// Animate a soldier rig. state: {speed, phase, aimPitch, kind, swing, crouch}
+// Two-bone IK in the torso frame. Arm segments hang along local -Y.
+const _S = new THREE.Vector3(), _T = new THREE.Vector3(), _D = new THREE.Vector3(), _N = new THREE.Vector3(), _U = new THREE.Vector3(), _E = new THREE.Vector3(), _F = new THREE.Vector3();
+const DOWN = new THREE.Vector3(0, -1, 0), _Q = new THREE.Quaternion();
+function ikArm(arm, target, side) {
+  const L1 = 0.28, L2 = 0.3;
+  _S.copy(arm.sh.position); _D.subVectors(target, _S); let d = _D.length();
+  d = THREE.MathUtils.clamp(d, 0.08, (L1 + L2) * 0.985); _D.normalize();
+  const a1 = Math.acos(THREE.MathUtils.clamp((L1 * L1 + d * d - L2 * L2) / (2 * L1 * d), -1, 1));
+  const pole = _N.set(side * 0.6, -1, 0.35).normalize();
+  const axis = _U.crossVectors(_D, pole); if (axis.lengthSq() < 1e-6) axis.set(1, 0, 0); axis.normalize();
+  const up = _E.copy(_D).applyAxisAngle(axis, -a1);   // upper-arm direction, bent toward the pole
+  arm.sh.quaternion.setFromUnitVectors(DOWN, up);
+  const elbow = _T.copy(_S).addScaledVector(up, L1);
+  const fore = _F.copy(target).sub(elbow).normalize();
+  fore.applyQuaternion(_Q.copy(arm.sh.quaternion).invert());
+  arm.el.quaternion.setFromUnitVectors(DOWN, fore);
+}
+const _grip = new THREE.Vector3(), _fore = new THREE.Vector3();
+
+// Animate a soldier rig. state: {speed, phase, aimPitch, kind, swing}
 export function poseSoldier(rig, s) {
   const p = rig.userData.parts;
-  const sw = Math.sin(s.phase) * Math.min(1, s.speed / 6) * 0.7;
+  const k6 = Math.min(1, s.speed / 6);
+  const sw = Math.sin(s.phase) * k6 * 0.7;
   p.legR.hip.rotation.x = sw; p.legL.hip.rotation.x = -sw;
-  p.legR.knee.rotation.x = Math.max(0, -Math.cos(s.phase)) * 0.8 * Math.min(1, s.speed / 6);
-  p.legL.knee.rotation.x = Math.max(0, Math.cos(s.phase)) * 0.8 * Math.min(1, s.speed / 6);
-  p.hips.position.y = 0.95 + Math.abs(Math.cos(s.phase)) * 0.03 * Math.min(1, s.speed / 6);
-  const pitch = s.aimPitch || 0;
-  p.head.rotation.x = -pitch * 0.5;
-  p.torso.rotation.x = -pitch * 0.3;
-  if (s.kind === 'melee') {
+  p.legR.knee.rotation.x = Math.max(0, -Math.cos(s.phase)) * 0.8 * k6;
+  p.legL.knee.rotation.x = Math.max(0, Math.cos(s.phase)) * 0.8 * k6;
+  p.hips.position.y = 0.95 + Math.abs(Math.cos(s.phase)) * 0.03 * k6;
+  const pitch = THREE.MathUtils.clamp(s.aimPitch || 0, -1.2, 1.2);
+  // positive pitch = looking up → rotate the upper body back (rotation about +X tilts -Z forward upward)
+  p.torso.rotation.x = pitch * 0.3;
+  p.head.rotation.x = pitch * 0.45;
+  const held = rig.userData.held;
+  if (held === 'gun') {
+    const gm = p.gunMount; gm.rotation.set(pitch * 0.7, 0, 0);
+    gm.updateMatrix();
+    _grip.set(0, -0.045, 0.015).applyMatrix4(gm.matrix);
+    const fg = rig.userData.foregrip;
+    if (fg) _fore.copy(fg).applyMatrix4(gm.matrix); else _fore.copy(_grip).add(_T.set(-0.05, 0.0, -0.05));
+    ikArm(p.armR, _grip, 1); ikArm(p.armL, _fore, -1);
+  } else if (held === 'hand') {
     const k = s.swing || 0;
-    p.armR.sh.rotation.set(-1.2 - pitch * 0.5 + Math.sin(k * Math.PI) * -1.2, 0, -0.2 + k * 0.6);
-    p.armR.el.rotation.set(-0.6 + k * 0.5, 0, 0);
-    p.armL.sh.rotation.set(-0.3 + sw * 0.4, 0, 0.15); p.armL.el.rotation.set(-0.4, 0, 0);
+    const chop = Math.sin(k * Math.PI);
+    // forearm raised forward (blade/throwable up), chops forward-down on swing
+    p.armR.sh.quaternion.setFromEuler(new THREE.Euler(0.95 + pitch * 0.5 + chop * 0.9, 0, 0.15 - chop * 0.2));
+    p.armR.el.quaternion.setFromEuler(new THREE.Euler(0.75 + chop * 0.6, 0, 0));
+    p.armL.sh.quaternion.setFromEuler(new THREE.Euler(0.5 + sw * 0.3, 0, -0.2));
+    p.armL.el.quaternion.setFromEuler(new THREE.Euler(0.9, 0, 0));
+  } else { // fists: boxer guard, jab on swing
+    const k = s.swing || 0; const jab = Math.sin(k * Math.PI);
+    p.armR.sh.quaternion.setFromEuler(new THREE.Euler(0.9 + jab * 0.6 + pitch * 0.4, 0, 0.25));
+    p.armR.el.quaternion.setFromEuler(new THREE.Euler(1.5 - jab * 1.3, 0, 0));
+    p.armL.sh.quaternion.setFromEuler(new THREE.Euler(0.9 + pitch * 0.4, 0, -0.25));
+    p.armL.el.quaternion.setFromEuler(new THREE.Euler(1.6, 0, 0));
+  }
+  const spin = rig.userData.spin; if (spin) spin.rotation.z += s.firing ? 0.35 : 0;
+}
+
+const HAND_ITEMS = ['knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer', 'frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb', 'land_mine', 'shurikens', 'slippers', 'medkit', 'ammo_pack', 'armor_plate', 'adrenaline', 'barricade'];
+
+// Attach a held item. Guns sit in a chest mount that follows the aim (arms IK onto grip + foregrip);
+// melee/throwables/usables are held in the right hand.
+export function attachWeapon(rig, id, skin) {
+  const parts = rig.userData.parts;
+  for (const mnt of [parts.gunMount, parts.weaponMount]) while (mnt.children.length) mnt.remove(mnt.children[0]);
+  rig.userData.held = 'fists'; rig.userData.foregrip = null; rig.userData.spin = null; parts.active = null;
+  if (!id || id === 'fists') return;
+  const w = buildItem(id, { skin });
+  const deco = w.getObjectByName('holidayDeco'); if (deco) deco.visible = false;
+  if (HAND_ITEMS.includes(id)) {
+    // hand frame: fingers wrap local X; undo the hand's +90° X so the item's -Z runs along the forearm's forward side
+    w.rotation.set(-Math.PI / 2, 0, 0); w.position.set(0, -0.01, -0.02);
+    if (['medkit', 'ammo_pack', 'armor_plate', 'barricade'].includes(id)) w.scale.setScalar(0.7);
+    parts.weaponMount.add(w); rig.userData.held = 'hand'; parts.active = parts.weaponMount;
   } else {
-    p.armR.sh.rotation.set(-1.25 - pitch * 0.7, 0.1, -0.15);
-    p.armR.el.rotation.set(-0.35, 0, 0);
-    p.armL.sh.rotation.set(-1.35 - pitch * 0.7, -0.55, 0.25);
-    p.armL.el.rotation.set(-0.45, 0, 0);
+    parts.gunMount.add(w); rig.userData.held = 'gun'; parts.active = parts.gunMount;
+    const fg = findMarker(w, 'foregrip'); rig.userData.foregrip = fg ? fg.position.clone() : null;
+    rig.userData.spin = w.getObjectByName('spin');
   }
 }
 
-// Attach a held weapon to the rig's hand mount.
-export function attachWeapon(rig, id, skin) {
-  const mount = rig.userData.parts.weaponMount;
-  while (mount.children.length) mount.remove(mount.children[0]);
-  if (!id) return;
-  const w = buildItem(id, { skin });
-  // hand is rotated x=+90deg (fingers forward-down); undo for gun orientation
-  const melee = ['knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer'].includes(id);
-  if (id === 'fists') return;
-  if (melee) { w.rotation.set(-Math.PI / 2, 0, 0); w.position.set(0, 0.0, -0.02); }
-  else { w.rotation.set(-Math.PI / 2, 0, 0); w.position.set(0, -0.01, 0.0); }
-  mount.add(w);
+// Practice-range target dummy: steel silhouette on a stand, bullseye on the chest.
+export function buildTarget() {
+  const root = new THREE.Group(); root.name = 'target';
+  const steel = new THREE.MeshStandardMaterial({ color: 0x8a6a3a, metalness: 0.2, roughness: 0.7 });
+  const white = new THREE.MeshStandardMaterial({ color: 0xf0ece0, roughness: 0.6 });
+  const red = new THREE.MeshStandardMaterial({ color: 0xd02a1e, roughness: 0.5, emissive: 0x300000 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x2a2c30, metalness: 0.7, roughness: 0.4 });
+  P(root, cylY(0.3, 0.34, 0.08, 20), dark, 0, 0.04, 0);
+  P(root, cylY(0.03, 0.03, 0.9, 10), dark, 0, 0.5, 0);
+  P(root, rbox(0.62, 0.62, 0.06, 0.08), steel, 0, 1.15, 0);
+  P(root, rbox(0.3, 0.12, 0.05, 0.04), steel, 0, 1.5, 0);
+  P(root, sphere(0.15, 18, 12), steel, 0, 1.66, 0).scale.set(1, 1.1, 0.4);
+  for (const [r, mat, z] of [[0.26, white, -0.032], [0.19, red, -0.035], [0.12, white, -0.038], [0.06, red, -0.041]]) P(root, cylY(r, r, 0.004, 28).rotateX(Math.PI / 2), mat, 0, 1.18, z);
+  P(root, cylY(0.07, 0.07, 0.004, 20).rotateX(Math.PI / 2), red, 0, 1.66, -0.065);
+  root.userData.parts = null; root.userData.mats = { visor: { emissiveIntensity: 1 } };
+  shadowAll(root);
+  return root;
 }

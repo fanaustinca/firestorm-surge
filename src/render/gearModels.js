@@ -364,7 +364,22 @@ function thermal_goggles(m) {
   return g;
 }
 
+function land_mine(m) {
+  const g = new THREE.Group();
+  const body = std({ color: 0x3a4030, metalness: 0.4, roughness: 0.55 });
+  P(g, cylY(0.12, 0.13, 0.05, 32), body, 0, 0.025, 0);
+  P(g, torus(0.12, 0.012, 32).rotateX(PI / 2), m.darksteel, 0, 0.05, 0);
+  P(g, cylY(0.07, 0.075, 0.025, 28), m.darksteel, 0, 0.062, 0);
+  P(g, cylY(0.05, 0.05, 0.012, 24), m.rubber, 0, 0.08, 0);
+  for (let i = 0; i < 6; i++) { const a = (i / 6) * PI * 2; P(g, cylY(0.008, 0.008, 0.012, 8), m.steel, Math.cos(a) * 0.098, 0.055, Math.sin(a) * 0.098); }
+  P(g, rbox(0.03, 0.015, 0.02, 0.003), m.yellow, 0.1, 0.03, 0);
+  const led = P(g, sphere(0.007, 10, 8), m.reddot, 0.06, 0.07, 0.03); led.name = 'led';
+  P(g, cylY(0.13, 0.13, 0.006, 32), m.hazard, 0, 0.003, 0);
+  return g;
+}
+
 export const GEAR_BUILDERS = {
+  land_mine,
   fists, knife, scythe, bat, karambit, katana, sledgehammer, shurikens, slippers,
   frag, smoke_grenade, molotov, flashbang, sticky_bomb,
   medkit, ammo_pack, armor_plate, adrenaline, barricade,

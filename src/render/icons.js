@@ -40,3 +40,32 @@ export function itemIcon(id, skin = null) {
     cache.set(key, url); return url;
   } catch (e) { console.warn('icon failed', id, e); return ''; }
 }
+
+// ───── map preview thumbnails (rendered once per session, async so menus stay responsive) ─────
+let mr = null; const mapCache = new Map(); let queue = Promise.resolve();
+const VIEWS = { underground_lab: [[0, 8.4, 27], [0, 2.5, -8]], neon_market: [[0, 22, 34], [0, 3, -2]] };
+export function mapThumb(id) {
+  if (mapCache.has(id)) return mapCache.get(id);
+  const p = queue = queue.then(() => new Promise((res) => setTimeout(async () => {
+    try {
+      const { buildMap } = await import('../world/maps.js');
+      if (!mr) { const c = document.createElement('canvas'); c.width = 480; c.height = 270; mr = new THREE.WebGLRenderer({ canvas: c, antialias: true, preserveDrawingBuffer: true }); mr.setSize(480, 270, false); mr.toneMapping = THREE.ACESFilmicToneMapping; mr.outputColorSpace = THREE.SRGBColorSpace; mr.shadowMap.enabled = true; }
+      const map = buildMap(id, { nav: false }); const e = map.env;
+      const sc = new THREE.Scene(); sc.add(map.group); sc.background = new THREE.Color(e.indoor ? e.fog[0] : ({ night: 0x101830, snow: 0xc8dcf0, desert: 0xa8c8e8, dusk: 0xd8a888, jungle: 0x98b890 }[e.sky] ?? 0x8ab8e0));
+      sc.fog = new THREE.Fog(e.fog[0], e.fog[1] * 1.4, e.fog[2] * 1.4);
+      const sun = new THREE.DirectionalLight(e.sunColor, e.sunI); sun.position.set(...e.sun).normalize().multiplyScalar(60); sun.castShadow = true; const s = sun.shadow.camera; s.left = s.bottom = -36; s.right = s.top = 36; s.far = 160; sun.shadow.mapSize.set(1024, 1024); sc.add(sun);
+      sc.add(new THREE.HemisphereLight(e.hemi[0], e.hemi[1], e.hemi[2]));
+      if (!scene) init();
+      sc.environment = scene.environment; sc.environmentIntensity = 0.4;
+      mr.toneMappingExposure = e.exposure;
+      const [pos, at] = VIEWS[id] || [[0, 30, 40], [0, 1, -3]];
+      const cam = new THREE.PerspectiveCamera(55, 16 / 9, 0.5, 300); cam.position.set(...pos); cam.lookAt(...at);
+      mr.render(sc, cam);
+      const url = mr.domElement.toDataURL('image/jpeg', 0.82);
+      map.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+      res(url);
+    } catch (err) { console.warn('map thumb failed', id, err); res(''); }
+  }, 30)));
+  mapCache.set(id, p);
+  return p;
+}
