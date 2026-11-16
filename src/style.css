@@ -201,7 +201,7 @@ tr.me td { background: rgba(255, 106, 26, 0.15); }
 #useprog .bar { height: 6px; background: rgba(0, 0, 0, 0.55); border-radius: 3px; overflow: hidden; } #useprog i { display: block; height: 100%; background: linear-gradient(90deg, #6dff8a, #ffe14a); }
 #scope { position: absolute; inset: 0; opacity: 0; }
 #scope.on { opacity: 1; }
-#scope .ring { position: absolute; inset: 0; background: radial-gradient(circle at 50% 50%, transparent 0, transparent min(38vh, 38vw), rgba(0, 0, 0, 0.92) calc(min(38vh, 38vw) + 2px), #000 100%); }
+#scope .ring { position: absolute; inset: 0; background: radial-gradient(circle at 50% 50%, transparent 0, transparent min(46vh, 46vw), rgba(10, 12, 14, 0.85) calc(min(46vh, 46vw) + 3px), rgba(10, 12, 14, 0.55) calc(min(46vh, 46vw) + 40px), rgba(0, 0, 0, 0.5) 100%); }
 #scope .cross { position: absolute; inset: 0; background: linear-gradient(#000, #000) 50% 50% / 1.5px 76vh no-repeat, linear-gradient(#000, #000) 50% 50% / 76vh 1.5px no-repeat; }
 #scope .cross::after { content: ''; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: #ff2a1a; box-shadow: 0 0 6px #ff2a1a; }
 #ov-flash { position: absolute; inset: 0; background: #fff; opacity: 0; }

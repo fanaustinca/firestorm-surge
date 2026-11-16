@@ -308,10 +308,13 @@ function mortar(m) {
   P(g, cylZ(0.04, 0.04, 0.84, 20), m.polymer, 0, 0.1, -0.3);                  // dark bore liner
   P(g, cylZ(0.06, 0.06, 0.04, 28), m.darksteel, 0, 0.1, -0.71);
   P(g, cylZ(0.056, 0.056, 0.03, 28), m.hazard, 0, 0.1, -0.55);
-  P(g, sphere(0.058, 20, 14), m.darksteel, 0, 0.1, 0.13);
-  const plate = P(g, new THREE.CylinderGeometry(0.17, 0.19, 0.03, 28), m.darksteel, 0, 0.08, 0.2, PI / 2);
+  // breech cap → ball → socket cup welded to the centre of the baseplate (one solid assembly)
+  P(g, cylZ(0.058, 0.05, 0.05, 28), m.darksteel, 0, 0.1, 0.14);
+  P(g, sphere(0.05, 20, 14), m.darksteel, 0, 0.1, 0.17);
+  P(g, cylZ(0.05, 0.075, 0.05, 28), m.gunmetal, 0, 0.1, 0.19);
+  const plate = P(g, new THREE.CylinderGeometry(0.17, 0.19, 0.03, 28), m.darksteel, 0, 0.1, 0.225, PI / 2);
   plate.scale.set(1, 1, 0.9);
-  for (let i = 0; i < 6; i++) { const a = (i / 6) * PI * 2 + PI / 6; P(g, box(0.022, 0.13, 0.03), m.gunmetal, Math.cos(a) * 0.1, 0.08 + Math.sin(a) * 0.1, 0.225, 0, 0, a - PI / 2); }
+  for (let i = 0; i < 6; i++) { const a = (i / 6) * PI * 2 + PI / 6; P(g, box(0.022, 0.13, 0.03), m.gunmetal, Math.cos(a) * 0.1, 0.1 + Math.sin(a) * 0.1, 0.25, 0, 0, a - PI / 2); }
   P(g, cylZ(0.065, 0.065, 0.06, 24), m.gunmetal, 0, 0.1, -0.38);                // bipod collar
   const legGeo = cylY(0.011, 0.011, 0.36, 10);
   for (const sx of [-1, 1]) {

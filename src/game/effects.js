@@ -75,9 +75,9 @@ export class Effects {
     for (let i = 0; i < 3; i++) this.spawn(pos, dir.clone().multiplyScalar(6 + Math.random() * 4).add(new THREE.Vector3((Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2)), color, 0.06 * big, 0.08);
     this.flashLight.position.copy(pos); this.flashLight.intensity = 6 * big; this.flashT = 0.05;
   }
-  flame(pos, vel) {
+  flame(pos, vel, reach = 1) {
     const c = Math.random() < 0.3 ? 0xff5010 : Math.random() < 0.5 ? 0xffa020 : 0xffd060;
-    this.spawn(pos, vel, c, 0.25 + Math.random() * 0.15, 0.45 + Math.random() * 0.2, { grow: 1.6, gravity: 2, drag: 1.2 });
+    this.spawn(pos, vel, c, 0.25 + Math.random() * 0.15, (0.45 + Math.random() * 0.2) * Math.min(1.5, Math.max(1, reach)), { grow: 1.6 * Math.max(1, reach * 0.9), gravity: 2, drag: 1.2 });
   }
 
   // ───── smoke ─────

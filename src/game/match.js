@@ -43,7 +43,11 @@ export class Match {
     if (this.phase !== 'live') return;
     if (!this.mode.practice) this.timeLeft -= dt;
     if (!this.roundBased) {
-      for (const a of this.g.actors) if (!a.alive && a.respawnT > 0) { a.respawnT -= dt; if (a.respawnT <= 0 && this.g.owns(a)) this.g.respawnActor(a); }
+      for (const a of this.g.actors) {
+        if (a.alive || !this.g.owns(a)) continue;
+        if (!(a.respawnT > 0)) a.respawnT = this.mode.respawn;          // watchdog: died outside the live phase / ownership handover
+        a.respawnT -= dt; if (a.respawnT <= 0) this.g.respawnActor(a);
+      }
       if (this.timeLeft <= 0) this.end();
     } else {
       const alive = { red: 0, blue: 0 };

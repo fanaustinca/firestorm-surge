@@ -7,8 +7,9 @@ import { GUN_BUILDERS } from './gunModels.js';
 
 const std = (o) => new THREE.MeshStandardMaterial(o);
 const PI = Math.PI;
-const NEON = () => std({ color: 0x40f0ff, emissive: 0x20e0ff, emissiveIntensity: 2.6, toneMapped: false });
-const PINK = () => std({ color: 0xff50e8, emissive: 0xff20d0, emissiveIntensity: 2.4, toneMapped: false });
+// standard gun finishes (no neon): polished steel + brass trim mark the ULTRA hardware
+const NEON = () => std({ color: 0xa8b0b8, metalness: 1, roughness: 0.22 });
+const PINK = () => std({ color: 0xc89a3c, metalness: 1, roughness: 0.3 });
 const WARHEAD = () => std({ color: 0x4a6a2c, metalness: 0.35, roughness: 0.45 });
 
 // glowing coil rings + side light strips along a barrel
@@ -29,11 +30,7 @@ function drum(g, m, z, y, r = 0.075, w = 0.06) {
   return d;
 }
 function base(id, m, opt) {
-  const g = GUN_BUILDERS[id](m, { ...opt, holiday: null });
-  // any one-off material in the base model (e.g. the battle rifle's white shell) gets the ultra circuit finish
-  const own = new Set(Object.values(m));
-  g.traverse((o) => { if (o.isMesh && !own.has(o.material) && !(o.material.emissiveIntensity > 1)) o.material = m.gunmetal; });
-  return g;
+  return GUN_BUILDERS[id](m, { ...opt, holiday: null });
 }
 function emblem(g, y, z) { // floating chevron badge
   const s = new THREE.Shape(); s.moveTo(0, 0); s.lineTo(0.02, 0.018); s.lineTo(0.04, 0); s.lineTo(0.04, 0.008); s.lineTo(0.02, 0.026); s.lineTo(0, 0.008);
@@ -70,37 +67,46 @@ function dmr_ultra(m, opt) {
   emblem(g, 0.05, 0.12);
   return g;
 }
+// ULTRA rocket launcher: ONE launch tube fed by a 6-chamber revolving cylinder behind it.
+// The cylinder ('wheel') indexes 60° after every shot to bring the next rocket up to the barrel.
 function rocket_launcher_ultra(m) {
-  const g = new THREE.Group(); const cy = 0.15, R = 0.13;
-  // revolving 8-tube wheel
-  const wheel = new THREE.Group(); wheel.name = 'spin'; wheel.position.set(0, cy, -0.22); g.add(wheel);
-  const wh = WARHEAD();
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * PI * 2; const x = Math.cos(a) * R, y = Math.sin(a) * R;
-    P(wheel, cylZ(0.048, 0.048, 0.62, 20, true), m.gunmetal, x, y, 0);
-    P(wheel, cylZ(0.051, 0.051, 0.03, 20), m.darksteel, x, y, -0.3);
-    P(wheel, latheZ([[0, 0.17], [0.012, 0.16], [0.03, 0.11], [0.044, 0.04], [0.044, 0], [0, 0]], 16), wh, x, y, -0.33);
-    P(wheel, cylZ(0.045, 0.045, 0.012, 16), m.yellow, x, y, -0.33);
+  const g = new THREE.Group(); const by = 0.16, R = 0.1, cy = by - R;
+  const olive = WARHEAD();
+  // launch tube (single barrel) on top, aligned with the chamber at the 12 o'clock position
+  P(g, cylZ(0.062, 0.062, 0.78, 28, true), m.gunmetal, 0, by, -0.62);
+  P(g, cylZ(0.05, 0.05, 0.78, 24), m.polymer, 0, by, -0.62);
+  P(g, latheZ([[0.062, 0], [0.07, -0.03], [0.085, -0.1], [0.08, -0.105]], 28), m.gunmetal, 0, by, -1.0);
+  for (const z of [-0.3, -0.62, -0.9]) P(g, torus(0.064, 0.007, 28), NEON(), 0, by, z);
+  P(g, cylZ(0.066, 0.066, 0.05, 28), m.hazard, 0, by, -0.78);
+  // revolving cylinder
+  const wheel = new THREE.Group(); wheel.name = 'wheel'; wheel.position.set(0, cy, -0.1); g.add(wheel);
+  P(wheel, cylZ(0.17, 0.17, 0.4, 36), m.gunmetal);
+  for (let i = 0; i < 6; i++) {
+    const a = Math.PI / 2 + (i / 6) * PI * 2; const x = Math.cos(a) * R, y = Math.sin(a) * R;
+    P(wheel, cylZ(0.052, 0.052, 0.402, 20), m.darksteel, x, y, 0);                       // chamber mouth
+    const rk = new THREE.Group(); rk.name = 'rk' + i; rk.position.set(x, y, -0.2); wheel.add(rk);
+    P(rk, latheZ([[0, 0.13], [0.014, 0.12], [0.036, 0.07], [0.046, 0.02], [0.046, 0], [0, 0]], 18), olive);
+    P(rk, cylZ(0.047, 0.047, 0.012, 18), m.yellow, 0, 0, 0.005);
+    const a2 = a + PI / 6; P(wheel, box(0.02, 0.03, 0.38), m.darksteel, Math.cos(a2) * 0.165, Math.sin(a2) * 0.165, 0, 0, 0, a2);   // flutes
   }
-  P(wheel, cylZ(0.05, 0.05, 0.66, 20), m.darksteel);
-  for (const z of [-0.26, 0, 0.26]) P(wheel, torus(R + 0.05, 0.012, 40), m.gunmetal, 0, 0, z);
-  P(wheel, torus(R + 0.055, 0.006, 40), NEON(), 0, 0, -0.32);
-  P(wheel, torus(R + 0.055, 0.006, 40), PINK(), 0, 0, 0.32);
-  // rear drive housing + motor
-  P(g, cylZ(0.2, 0.19, 0.16, 32), m.gunmetal, 0, cy, 0.18);
-  P(g, cylZ(0.12, 0.12, 0.05, 24), m.darksteel, 0, cy, 0.285);
-  P(g, torus(0.2, 0.008, 40), NEON(), 0, cy, 0.1);
-  P(g, rbox(0.1, 0.08, 0.12, 0.01), m.gunmetal, 0, cy + 0.2, 0.15);
-  P(g, cylX(0.03, 0.03, 0.12, 16), PINK(), 0, cy + 0.2, 0.15);
-  // grips + optic
-  P(g, rbox(0.05, 0.06, 0.12, 0.008), m.polymer, 0, -0.01, 0.08);
-  P(g, rbox(0.035, 0.11, 0.05, 0.008), m.polymer, 0, -0.06, 0.03, 0.2);
-  P(g, rbox(0.04, 0.06, 0.05, 0.008), m.polymer, 0, -0.02, -0.25);
-  P(g, cylY(0.016, 0.018, 0.1, 12), m.polymer, 0, -0.08, -0.25);
-  P(g, rbox(0.05, 0.06, 0.14, 0.01), m.polymer, -0.19, cy + 0.12, -0.05);
-  P(g, cylZ(0.02, 0.02, 0.006, 16), NEON(), -0.19, cy + 0.13, -0.123);
-  P(g, rbox(0.1, 0.05, 0.18, 0.015), m.rubber, 0, cy - 0.06, 0.32);
-  marker(g, 'muzzle', 0, cy + R, -0.98); marker(g, 'foregrip', 0, -0.06, -0.25); marker(g, 'sight', -0.19, cy + 0.13, 0.12);
+  P(wheel, cylZ(0.04, 0.04, 0.44, 16), m.steel);                                          // axle
+  // frame: top strap joins barrel to the breech, side plates hold the cylinder axle
+  P(g, rbox(0.1, 0.04, 0.5, 0.01), m.gunmetal, 0, by + 0.06, -0.1);
+  for (const sx of [-1, 1]) P(g, rbox(0.02, 0.3, 0.06, 0.006), m.gunmetal, sx * 0.185, cy, -0.32);
+  P(g, rbox(0.39, 0.06, 0.06, 0.01), m.gunmetal, 0, cy - 0.17, -0.32);
+  P(g, cylZ(0.17, 0.15, 0.14, 32), m.gunmetal, 0, cy, 0.17);                               // breech / drive housing
+  P(g, cylZ(0.07, 0.07, 0.05, 20), m.darksteel, 0, cy, 0.26);
+  P(g, torus(0.17, 0.008, 36), PINK(), 0, cy, 0.1);
+  P(g, rbox(0.08, 0.06, 0.1, 0.01), m.darksteel, 0.17, cy + 0.06, 0.17);                   // index motor
+  // grips, optic, shoulder pad
+  P(g, rbox(0.05, 0.05, 0.14, 0.008), m.polymer, 0, cy - 0.2, 0.12);
+  P(g, rbox(0.035, 0.11, 0.05, 0.008), m.polymer, 0, cy - 0.27, 0.08, 0.2);
+  P(g, rbox(0.04, 0.05, 0.05, 0.008), m.polymer, 0, by - 0.09, -0.6);
+  P(g, cylY(0.016, 0.018, 0.1, 12), m.polymer, 0, by - 0.16, -0.6);
+  P(g, rbox(0.05, 0.06, 0.14, 0.01), m.polymer, -0.11, by + 0.07, -0.4);
+  P(g, cylZ(0.018, 0.018, 0.006, 16), m.lens, -0.11, by + 0.08, -0.473);
+  P(g, rbox(0.12, 0.05, 0.16, 0.015), m.rubber, 0, cy - 0.04, 0.3);
+  marker(g, 'muzzle', 0, by, -1.1); marker(g, 'foregrip', 0, by - 0.16, -0.6); marker(g, 'sight', -0.11, by + 0.08, -0.25);
   return g;
 }
 function burst_rifle_ultra(m, opt) {
@@ -202,8 +208,10 @@ function mortar_ultra(m) {
     P(g, latheZ([[0, 0.08], [0.02, 0.06], [0.034, 0.0], [0.03, -0.02], [0, -0.02]], 16), WARHEAD(), x, y, -0.74);
   }
   for (const z of [-0.6, -0.3, 0.0]) { P(g, rbox(0.25, 0.26, 0.03, 0.01), m.darksteel, 0, 0.12, z); P(g, box(0.252, 0.01, 0.032), NEON(), 0, 0.25, z); }
-  const plate = P(g, new THREE.CylinderGeometry(0.22, 0.24, 0.035, 28), m.darksteel, 0, 0.12, 0.2, PI / 2); plate.scale.set(1, 1, 0.9);
-  P(g, torus(0.23, 0.008, 40), PINK(), 0, 0.12, 0.22);
+  P(g, rbox(0.25, 0.26, 0.1, 0.012), m.gunmetal, 0, 0.12, 0.155);                 // breech block joins all 4 tubes
+  P(g, cylZ(0.07, 0.09, 0.05, 28), m.darksteel, 0, 0.12, 0.215);                   // socket into the baseplate
+  const plate = P(g, new THREE.CylinderGeometry(0.22, 0.24, 0.035, 28), m.darksteel, 0, 0.12, 0.25, PI / 2); plate.scale.set(1, 1, 0.9);
+  P(g, torus(0.23, 0.008, 40), PINK(), 0, 0.12, 0.27);
   for (const sx of [-1, 1]) {
     const from = new THREE.Vector3(sx * 0.08, 0.04, -0.4), to = new THREE.Vector3(sx * 0.26, -0.26, -0.52);
     const mid = from.clone().add(to).multiplyScalar(0.5); const leg = P(g, cylY(0.013, 0.013, 0.4, 10), m.darksteel, mid.x, mid.y, mid.z);

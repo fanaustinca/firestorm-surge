@@ -81,14 +81,22 @@ export class Game {
     this.sky.visible = !e.indoor; this.scene.background = new THREE.Color(e.fog[0]);
     this.sky.material.color.set({ day: 0xffffff, desert: 0xfff2e0, dusk: 0xffd6c0, night: 0x202840, snow: 0xe8f0ff, jungle: 0xd8f0d0 }[e.sky] ?? 0xffffff);
     this.scene.environmentIntensity = e.indoor ? 0.3 : 0.45;
+    // falling snow (Frostbite): 2400 flakes in a 40 m box that follows the camera
+    if (this.snow) { this.scene.remove(this.snow); this.snow.geometry.dispose(); this.snow = null; }
+    if (e.snowfall) {
+      const n = 2400, pos = new Float32Array(n * 3); for (let i = 0; i < n; i++) { pos[i * 3] = (Math.random() - 0.5) * 40; pos[i * 3 + 1] = Math.random() * 18; pos[i * 3 + 2] = (Math.random() - 0.5) * 40; }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      this.snow = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffffff, size: 0.09, transparent: true, opacity: 0.85, depthWrite: false })); this.snow.frustumCulled = false; this.scene.add(this.snow);
+    }
   }
 
-  async startMatch({ mapId = 'cargo_yard', modeId = 'red_vs_blue', online = false } = {}) {
+  async startMatch({ mapId = 'cargo_yard', modeId = 'red_vs_blue', online = false, matchId = null } = {}) {
     this.exitInspect();
     this.clearActors(); this.combat.reset(); this.effects.clear(); this.queue = [];
     if (!online && this.net.connected) await this.net.leave();
     this.killCoins = 0; this.killCount = 0;
     this.loadMap(mapId); this.mapId = mapId; this.modeId = modeId;
+    this.net.matchId = matchId || `${modeId}:${mapId}:${Math.random().toString(36).slice(2, 7)}`; this.rosterKey = '';
     this.match = new Match(this, modeId);
     const loadout = profile.effectiveLoadout();
     const p = this.player = new Actor({ id: this.net.selfId, name: profile.d.name, team: 'red', isLocal: true });
@@ -128,21 +136,24 @@ export class Game {
     this.actors = []; this.brains.clear(); this.player = null;
   }
 
-  // Slots 0..size-1: humans (sorted ids) take the first slots, bots backfill the rest.
+  // Slots 0..size-1: humans actually in this match (sorted ids) take the first slots, bots backfill the rest.
+  // Also hands bots over when ownership changes (a peer left / stopped playing) so nobody is left frozen or dead.
   rebuildRoster() {
-    const mode = MODES[this.modeId]; const humans = this.net.connected ? this.net.humans : [this.player.id];
+    const mode = MODES[this.modeId]; const humans = this.net.connected ? this.net.players : [this.player.id];
+    this.rosterKey = humans.join('|');
     const wanted = new Map();
     humans.forEach((id, k) => wanted.set(id, { slot: k, human: true }));
     for (let k = humans.length; k < mode.size; k++) wanted.set('bot-' + k, { slot: k, human: false });
-    // remove stale
-    for (const a of [...this.actors]) if (!wanted.has(a.id) && !a.dev) this.removeActor(a);
+    for (const a of [...this.actors]) if (!wanted.has(a.id) && !a.dev && !a.isTarget) this.removeActor(a);
     for (const [id, w] of wanted) {
       const team = this.match.teamFor(w.slot);
       let a = this.actors.find((x) => x.id === id);
       if (!a && !w.human) a = this.addBot({ id, index: w.slot, team });
       if (!a) continue;
       a.botIndex = w.slot;
+      if (!w.human && !this.brains.has(a)) { const info = botLoadout(w.slot); a.setLoadout(info.loadout); a.archetype = info.archetype; this.brains.set(a, new BotBrain(this, a, info, 0.2 + ((w.slot * 37) % 10) / 30)); a.isRemote = false; a.net = null; }
       if (a.team !== team) { a.team = team; if (a.rig) { this.scene.remove(a.rig); a.rig = null; } if (this.owns(a)) this.respawnActor(a); }
+      if (this.owns(a) && !a.alive && !(a.respawnT > 0) && !this.match.roundBased) a.respawnT = 1;
     }
   }
 
@@ -293,13 +304,13 @@ export class Game {
   shakeFrom(pos, radius) { const d = pos.distanceTo(this.camera.position); this.shake = Math.max(this.shake, Math.max(0, 1 - d / (radius * 5)) * 0.5); }
 
   // ═════════════════ networking callbacks ═════════════════
-  onPeerJoin(id, name) { this.hud.toast(`${name || 'Player'} joined`); this.rebuildRoster(); const a = this.actors.find((x) => x.id === id); if (!a) { const r = new Actor({ id, name: name || 'Player', team: 'red' }); r.isRemote = true; r.setLoadout(profile.effectiveLoadout()); this.actors.push(r); this.rebuildRoster(); } }
+  onPeerJoin(id, name) { this.hud.toast(`${name || 'Player'} joined the room`); }
   onPeerLeave(id) { const a = this.actors.find((x) => x.id === id); if (a) { this.hud.toast(`${a.name} left — bot backfilling`); this.removeActor(a); } this.rebuildRoster(); }
   onRemoteState(list) {
     for (const e of list) {
       const [id, x, y, z, yaw, pitch, slot, wid, hp, armor, alive, team, name, isBot, speed, swing, kills, deaths] = e;
       let a = this.actors.find((q) => q.id === id);
-      if (!a) { a = new Actor({ id, name, team, isBot: !!isBot }); a.isRemote = !isBot; a.setLoadout({ [slot]: wid || 'assault_rifle' }); a.slot = slot; this.actors.push(a); }
+      if (!a) { a = new Actor({ id, name, team, isBot: !!isBot }); a.isRemote = !isBot; a.setLoadout({ [slot]: wid || 'assault_rifle' }); a.slot = slot; if (isBot) a.botIndex = +String(id).split('-')[1] || 0; this.actors.push(a); }
       if (this.owns(a)) continue;
       a.net = { pos: new THREE.Vector3(x, y, z), yaw, pitch, t: this.time }; a.netSpeed = speed;
       if (!a.weapons[slot] || a.weapons[slot].id !== wid) { if (wid) { a.loadout[slot] = wid; a.setLoadout(a.loadout); } }
@@ -398,6 +409,7 @@ export class Game {
       } else if (!a.alive) { a.vel.set(0, 0, 0); }
     }
     this.combat.update(dt);
+    if (this.net.connected && this.match && (this.rosterT = (this.rosterT || 0) - dt) <= 0) { this.rosterT = 0.5; if (this.net.players.join('|') !== this.rosterKey) this.rebuildRoster(); }
     this.match?.update(dt);
     for (let i = this.queue.length - 1; i >= 0; i--) if (this.queue[i].t <= this.time) { const q = this.queue.splice(i, 1)[0]; q.fn(); }
     this.net.update(dt);
@@ -473,6 +485,11 @@ export class Game {
     const e = this.map.env; this.sun.target.position.set(Math.round(cam.position.x / 4) * 4, 0, Math.round(cam.position.z / 4) * 4);
     this.sun.position.copy(this.sun.target.position).add(_b.set(...e.sun).normalize().multiplyScalar(90));
     this.sky.position.copy(cam.position);
+    if (this.snow) {
+      const a = this.snow.geometry.attributes.position, t = this.time;
+      for (let i = 0; i < a.count; i++) { let y = a.getY(i) - dt * (1.2 + (i % 7) * 0.12); if (y < 0) y += 18; a.setY(i, y); a.setX(i, a.getX(i) + Math.sin(t * 0.7 + i) * dt * 0.25); }
+      a.needsUpdate = true; this.snow.position.set(Math.round(cam.position.x / 2) * 2, 0, Math.round(cam.position.z / 2) * 2);
+    }
     // rigs
     this.effects.thermal = p.thermal.on;
     for (const a of this.actors) if (a !== p) this.updateRig(a, dt);
@@ -519,6 +536,7 @@ export class Game {
     rig.visible = true; rig.position.copy(a.pos); rig.rotation.set(0, a.yaw, 0);
     const spd = a.isRemote || !this.owns(a) ? (a.netSpeed || 0) : Math.hypot(a.vel.x, a.vel.z);
     a.animPhase += dt * spd * 1.6;
+    const wh = rig.userData.wheel; if (wh && a.ws) { const fired = Math.max(0, a.ws.def.mag - a.ws.mag); wh.rotation.z = -fired * Math.PI / 3; }
     poseSoldier(rig, { speed: spd, phase: a.animPhase, aimPitch: a.pitch, swing: a.ws?.swing || 0, firing: this.time - (a.lastShotT ?? -9) < 0.15 });
     // thermal highlight (enemies only, through smoke; walls still occlude)
     const hot = this.player.thermal.on && this.hostile(this.player, a);

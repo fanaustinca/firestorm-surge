@@ -452,8 +452,8 @@ export class Combat {
     const muzzle = this.g.muzzleWorld(a, V());
     const side = _d.set(-dir.z, 0, dir.x).normalize();
     for (const off of d.twin ? [-0.07, 0.07] : [0]) for (let i = 0; i < 5; i++) {
-      const v = jitter(dir, d.cone * 0.8).multiplyScalar((d.range > 12 ? 19 : 14) + Math.random() * 6).add(a.vel);
-      this.g.effects.flame(muzzle.clone().addScaledVector(dir, 0.1).addScaledVector(side, off), v);
+      const v = jitter(dir, d.cone * 0.8).multiplyScalar(d.range * 1.25 + Math.random() * 6).add(a.vel);
+      this.g.effects.flame(muzzle.clone().addScaledVector(dir, 0.1).addScaledVector(side, off), v, d.range / 11);
     }
     sfx.shot('flame', a === this.g.player ? null : a.chest(V()), 0.7);
     this.g.onFired(a, d, muzzle, dir);

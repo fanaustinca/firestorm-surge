@@ -279,15 +279,21 @@ export class BotBrain {
     else if (this.dodge) wish.copy(this.dodge);
     else if (this.path && this.path.length) {
       let wp = this.path[0];
-      const reached = (w) => Math.hypot(w.x - a.pos.x, w.z - a.pos.z) < (w.ladder ? 0.9 : 0.7) && Math.abs(w.y - a.pos.y) < 1.2;
+      const reached = (w) => Math.hypot(w.x - a.pos.x, w.z - a.pos.z) < (w.ladder ? 0.45 : 0.7) && Math.abs(w.y - a.pos.y) < (w.ladder ? 0.4 : 1.2);
       while (wp && reached(wp)) { this.path.shift(); wp = this.path[0]; this.wpT = 0; }
       this.wpT = (this.wpT || 0) + dt;
       if (wp && this.wpT > (wp.ladder ? 6 : 4)) { this.wpT = 0; this.fails = (this.fails || 0) + 1; this.path = null; this.pathT = 0; if (this.fails > 2) { this.goal = null; this.fails = 0; } wp = null; }
       if (wp) {
         if (wp.ladder && a.pos.y < wp.y - 0.3) {
-          const lx = wp.ladder.x - a.pos.x, lz = wp.ladder.z - a.pos.z; const l = Math.hypot(lx, lz) || 1;
-          wish.set(lx / l, 0, lz / l); it.climb = wish.clone();
-          if (a.climbing && l < 0.9) wish.set(wp.x - a.pos.x, 0, wp.z - a.pos.z).normalize().multiplyScalar(0.3);
+          const L = wp.ladder; const fx = L.fx - a.pos.x, fz = L.fz - a.pos.z; const fd = Math.hypot(fx, fz);
+          if (!a.climbing && a.onGround && fd > 0.3 && a.pos.y < wp.y - 1) {
+            wish.set(fx / fd, 0, fz / fd).multiplyScalar(Math.min(1, fd + 0.3));   // line up in front of the ladder first
+          } else {
+            wish.set(-L.nx, 0, -L.nz); it.climb = wish.clone();                    // then climb straight up its face
+            // keep centred on the ladder: lateral correction perpendicular to its normal
+            const lat = L.nx ? (L.z - a.pos.z) : (L.x - a.pos.x);
+            if (a.climbing) { wish.multiplyScalar(0.2); if (L.nx) wish.z += THREE.MathUtils.clamp(lat * 2, -0.8, 0.8); else wish.x += THREE.MathUtils.clamp(lat * 2, -0.8, 0.8); }
+          }
         } else wish.set(wp.x - a.pos.x, 0, wp.z - a.pos.z).normalize();
       }
     }

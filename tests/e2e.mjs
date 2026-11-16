@@ -37,9 +37,10 @@ try {
   const thin = meshes.filter(([, n]) => n < 5);
   check('All 43 item meshes are multi-part (≥5 meshes each)', thin.length === 0, thin.length ? JSON.stringify(thin) : `min ${Math.min(...meshes.map((m) => m[1]))} meshes`);
   const ultras = await page.evaluate(() => DEV.ultras().map((id) => { DEV.inspectGun(id); let n = 0, glow = 0; DEV.game.studio.holder.traverse((o) => { if (o.isMesh) { n++; if (o.material.emissiveIntensity > 1.5) glow++; } }); return [id, n, glow]; }));
-  check('Every main firearm has a distinct ULTRA model (10, glowing parts)', ultras.length === 10 && ultras.every(([, n, gl]) => n >= 10 && gl >= 2), ultras.map(([i, n, gl]) => `${i.replace('_ultra', '')}:${n}/${gl}`).join(' '));
-  const spinners = await page.evaluate(() => ['rocket_launcher_ultra', 'lmg_ultra'].map((id) => { DEV.inspectGun(id); let rk = 0; const sp = DEV.game.studio.holder.getObjectByName('spin'); sp?.traverse((o) => { if (o.isMesh) rk++; }); return [id, !!sp, rk]; }));
-  check('Ultra rocket launcher has a spinning 8-tube wheel; Ultra LMG a rotary barrel group', spinners.every(([, sp]) => sp), JSON.stringify(spinners));
+  const baseCounts = await page.evaluate(() => Object.fromEntries(DEV.ultras().map((u) => { const id = u.replace('_ultra', ''); DEV.inspectGun(id); let n = 0; DEV.game.studio.holder.traverse((o) => { if (o.isMesh) n++; }); return [id, n]; })));
+  check('Every main firearm has a distinct ULTRA model in standard colours (no neon glow)', ultras.length === 10 && ultras.every(([id, n, gl]) => n >= 10 && gl <= 2 && n !== baseCounts[id.replace('_ultra', '')]), ultras.map(([i, n, gl]) => `${i.replace('_ultra', '')}:${n}/${gl}`).join(' '));
+  const spinners = await page.evaluate(() => { DEV.inspectGun('rocket_launcher_ultra'); const h = DEV.game.studio.holder; const wheel = h.getObjectByName('wheel'); const rockets = [0, 1, 2, 3, 4, 5].filter((i) => wheel?.getObjectByName('rk' + i)).length; DEV.inspectGun('lmg_ultra'); let barrels = 0; DEV.game.studio.holder.getObjectByName('spin')?.traverse((o) => { if (o.isMesh && o.geometry.parameters?.height > 0.6) barrels++; }); return { wheel: !!wheel, rockets, barrels, mag: DEV.weapon('rocket_launcher_ultra').mag }; });
+  check('Ultra rocket launcher: single barrel fed by a 6-rocket revolving cylinder; Ultra LMG has 6 rotating barrels', spinners.wheel && spinners.rockets === 6 && spinners.mag === 6 && spinners.barrels === 6, JSON.stringify(spinners));
   const ultraStats = await page.evaluate(() => { const W = DEV.game.constructor && null; void W; const by = (id) => DEV.game.player ? null : null; void by; return null; });
   void ultraStats;
 
@@ -64,13 +65,17 @@ try {
     const st = await page.evaluate(() => {
       const g = DEV.game, w = g.map.world, nav = g.map.nav; const hs = [...nav.nodeH]; const levels = new Set(hs.map((h) => Math.round(h / 3)));
       // every spawn must stand on a walkable ground node; map must be ≤ 60 m wide
-      const badSpawn = [...g.map.spawns.red, ...g.map.spawns.blue, ...g.map.spawns.ffa].filter((p) => { const i = Math.floor(p.x + nav.half), j = Math.floor(p.z + nav.half); return !nav.cellNodes[i * nav.N + j].some((n) => nav.nodeH[n] < 0.6); });
+      const badSpawn = [...g.map.spawns.red, ...g.map.spawns.blue, ...g.map.spawns.ffa].filter((p) => { const i = Math.floor(p.x + nav.half), j = Math.floor(p.z + nav.half); return !nav.cellNodes[i * nav.N + j].some((n) => Math.abs(nav.nodeH[n] - p.y) < 0.6); });
       // open space: fraction of ground cells with nothing overhead within 20 m of the centre
       let open = 0, tot = 0; for (let i = 0; i < nav.N; i++) for (let j = 0; j < nav.N; j++) { const x = i - nav.half + 0.5, z = j - nav.half + 0.5; if (Math.hypot(x, z) > 20) continue; tot++; if (nav.cellNodes[i * nav.N + j].length) open++; }
       return { boxes: w.boxes.length, climb: w.boxes.filter((b) => b.climbable).length, levels: [...levels].sort(), maxH: Math.max(...hs), links: nav.links.size, badSpawn: badSpawn.length, open: open / tot, bounds: w.bounds };
     });
     check(`Map ${m}: 3 stories + roofs, open centre, ladders linked`, st.maxH >= 6 && st.levels.length >= 3 && st.open > 0.55 && st.links >= 4 && st.badSpawn === 0 && st.bounds === 30, `${st.boxes} colliders · levels ${st.levels.join('/')} (top ${st.maxH} m) · ${Math.round(st.open * 100)}% open centre · ${st.links} climb links · ${st.badSpawn} bad spawns`);
   }
+  const terr = await page.evaluate(() => Object.fromEntries(['frostbite', 'jungle_temple', 'underground_lab'].map((id) => { DEV.loadMap(id, 'practice'); const w = DEV.game.map.world; let mtn = false; DEV.game.map.group.traverse((o) => { if (o.isMesh && o.material.vertexColors && o.geometry.attributes.color) mtn = true; }); return [id, { maxH: +(w.terrain?.maxH || 0).toFixed(2), mountains: mtn }]; })));
+  check('Outdoor maps have rolling terrain + mountain ranges (indoor lab stays flat)', terr.frostbite.maxH > 0.5 && terr.jungle_temple.maxH > 0.5 && terr.frostbite.mountains && terr.underground_lab.maxH === 0, JSON.stringify(terr));
+  const adsL = await page.evaluate(() => { const g = DEV.game; DEV.loadMap('cargo_yard', 'practice'); g.timeScale = 0; DEV.advance(3.3); const out = {}; for (const id of ['lmg', 'lmg_ultra', 'ak47']) { g.vm.setWeapon(id, null); out[id] = +(g.vm.adsSight.y - g.vm.sight.position.y).toFixed(3); } return out; });
+  check('ADS line is raised clear of carry handles / housings', adsL.lmg > 0 && adsL.lmg_ultra > 0, JSON.stringify(adsL));
   // bots must be able to path to and reach upper floors (stairs, ladders, bridges)
   const reach = await page.evaluate(() => {
     const out = []; const g = DEV.game;
@@ -210,10 +215,12 @@ try {
   const boom = await page.evaluate(() => {
     const g = DEV.game; DEV.loadMap('refinery', 'red_vs_blue'); g.timeScale = 0; DEV.advance(3.3); DEV.clearBots(); DEV.godMode();
     const out = {};
+    const V = g.camera.position.constructor; let Z = 20;   // find an obstacle-free 11 m lane (maps have random cover props)
+    const w = g.map.world; for (let z = 22; z > -22; z -= 0.5) if (w.lineOfSight(new V(0, 0.3, z), new V(11, 1.2, z)) && w.lineOfSight(new V(0, 0.3, z), new V(11, 1.62, z)) && w.groundHeightAt(0, z) === 0 && w.groundHeightAt(9.5, z) === 0) { Z = z; break; }
     for (const [w, dist] of [['rocket_launcher', 6.5], ['grenade_launcher', 5.5], ['mortar', 9.5]]) {
-      const id = DEV.spawnBot('blue', 'assault_rifle', { frozen: true, at: [dist, 0, 20] }); const bot = g.actors.find((a) => a.id === id); bot.hp = 150; bot.spawnProtect = 0;
+      const id = DEV.spawnBot('blue', 'assault_rifle', { frozen: true, at: [dist, 0, Z] }); const bot = g.actors.find((a) => a.id === id); bot.hp = 150; bot.spawnProtect = 0;
       const p = { id: 'test-' + w, kind: 'test', def: DEV.weapon(w), owner: g.player };
-      g.combat.explode(p, new bot.pos.constructor(0, 0.05, 20), null);
+      g.combat.explode(p, new V(0, 0.05, Z), null);
       out[w] = { dist, dmg: 150 - bot.hp, radius: p.def.splash.radius }; g.removeActor(bot);
     }
     return out;
@@ -246,9 +253,21 @@ try {
     return res;
   });
   await shot('ultra-lmg-viewmodel');
-  check('FFA/teams: ULTRA after surviving 30 s (rocket wheel holds 8)', ultra.ffa25 === 'rocket_launcher' && ultra.ffa31 === 'rocket_launcher_ultra' && ultra.mag === 8, JSON.stringify(ultra));
+  check('FFA/teams: ULTRA after surviving 30 s (rocket cylinder holds 6)', ultra.ffa25 === 'rocket_launcher' && ultra.ffa31 === 'rocket_launcher_ultra' && ultra.mag === 6, JSON.stringify(ultra));
   check('ULTRA is lost on death', ultra.afterDeath === 'rocket_launcher');
   check('1v1: 2-minute rounds, ULTRA after the first minute', ultra.roundTime === 120 && ultra.duel45 === 'lmg' && ultra.duel61 === 'lmg_ultra');
+
+  // ───────── respawn robustness ─────────
+  const resp = await page.evaluate(() => {
+    const g = DEV.game; DEV.loadMap('cargo_yard', 'red_vs_blue'); g.timeScale = 0; g.god = false;
+    g.kill(g.player, {}); DEV.advance(7);                       // killed during warmup (old bug: never respawned)
+    const warm = g.player.alive;
+    g.kill(g.player, {}); DEV.advance(3.5); const live = g.player.alive;
+    const bot = g.actors.find((a) => a.isBot); g.kill(bot, { attacker: g.player }); bot.respawnT = 0; DEV.advance(3.5);
+    const teams = { red: g.actors.filter((a) => a.team === 'red').length, blue: g.actors.filter((a) => a.team === 'blue').length };
+    g.god = true; return { warm, live, botBack: bot.alive, teams };
+  });
+  check('Respawn always works (died in warmup, normal death, bot with lost timer)', resp.warm && resp.live && resp.botBack && resp.teams.red === 5 && resp.teams.blue === 5, JSON.stringify(resp));
 
   // ───────── bots: view cone, walls, smoke, flash, facing, weapon handling ─────────
   const bots = await page.evaluate(() => {

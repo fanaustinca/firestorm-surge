@@ -151,11 +151,11 @@ export const ULTRAS = [
   U('assault_rifle', { interval: 0.075, dmg: 27, head: 42, mag: 60, reserve: 240, spread: 0.008, recoil: 0.008, desc: 'Twin-rail plasma rifle. 60-round drum, 800 RPM.' }),
   U('ak47', { interval: 0.1, dmg: 34, head: 52, mag: 75, reserve: 225, spread: 0.012, recoil: 0.014, desc: 'Gilded drum-fed AK with bayonet. 75 rounds.' }),
   U('dmr', { interval: 0.18, dmg: 90, head: 200, mag: 10, reserve: 50, reload: 2.0, desc: 'Coil-charged marksman rifle. 10-round mag.' }),
-  U('rocket_launcher', { interval: 0.32, dmg: 260, head: 260, mag: 8, reserve: 16, reload: 3.4, splash: { radius: 8.5, max: 195, min: 70 }, desc: 'Spinning 8-rocket wheel. 8 rockets per reload.' }),
+  U('rocket_launcher', { interval: 0.45, dmg: 260, head: 260, mag: 6, reserve: 12, reload: 3.4, splash: { radius: 8.5, max: 195, min: 70 }, desc: 'Single barrel fed by a 6-rocket revolving cylinder that turns after every shot.' }),
   U('burst_rifle', { burst: 5, interval: 0.06, burstDelay: 0.22, dmg: 29, head: 44, mag: 50, reserve: 200, desc: '5-round hyper-burst battle rifle.' }),
   U('lmg', { interval: 0.04, dmg: 24, head: 36, mag: 300, reserve: 600, reload: 4.0, speed: 0.8, spread: 0.016, recoil: 0.004, range: 70, desc: 'Six rotating barrels. 1500 RPM, 300-round belt. An absolute killer.' }),
   U('heavy_sniper', { interval: 0.5, dmg: 210, head: 400, mag: 4, reserve: 16, vel: 1400, range: 120, pierce: true, desc: 'Railgun. Slugs pierce through every enemy in line.' }),
-  U('flamethrower', { dmg: 20, head: 20, mag: 300, reserve: 300, range: 16, cone: 0.3, twin: true, burn: { dps: 10, time: 4 }, desc: 'Twin nozzles, enormous fuel tank, 16 m inferno.' }),
+  U('flamethrower', { dmg: 20, head: 20, mag: 300, reserve: 300, range: 24, cone: 0.26, twin: true, burn: { dps: 10, time: 4 }, desc: 'Twin nozzles, enormous fuel tank, 24 m inferno.' }),
   U('grenade_launcher', { interval: 0.35, dmg: 170, head: 170, mag: 12, reserve: 24, splash: { radius: 7.5, max: 155, min: 55 }, desc: '12-shell rotary drum.' }),
   U('mortar', { interval: 0.45, dmg: 340, head: 340, mag: 4, reserve: 8, reload: 3.0, splash: { radius: 13, max: 250, min: 95 }, desc: 'Quad-tube battery. 4 shells per reload, bigger blasts.' }),
 ];

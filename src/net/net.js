@@ -11,6 +11,8 @@ export class Net {
   }
   get humans() { return [this.selfId, ...[...this.peers.values()].map((p) => p.id)].sort(); }
   get isHost() { return this.humans[0] === this.selfId; }
+  // humans actually playing THIS match (recent state packets with our match id) — bot ownership is split among these only
+  get players() { const now = performance.now(); return [this.selfId, ...[...this.peers.values()].filter((p) => p.mid === this.matchId && now - (p.midSeen || 0) < 2500).map((p) => p.id)].sort(); }
 
   async connect(modeId, maxHumans, onStatus = () => {}) {
     let joinRoom;
@@ -47,9 +49,13 @@ export class Net {
     });
     room.onPeerJoin?.((ctx) => hello.send({ id: this.selfId, name: this.g.playerName }, { target: ctx.peerId }).catch(() => {}));
     room.onPeerLeave?.((ctx) => { const p = this.peers.get(ctx.peerId); if (p) { this.peers.delete(ctx.peerId); if (this.g.state === 'playing') this.g.onPeerLeave(p.id); this.onPeers?.(); } });
-    this.stA.onMessage((d) => this.g.onRemoteState(d));
+    this.stA.onMessage((d, ctx) => {
+      const p = this.peers.get(ctx.peerId); if (!d || !Array.isArray(d.l)) return;
+      if (p) { p.mid = d.m; p.midSeen = performance.now(); }
+      if (d.m === this.matchId && this.g.state === 'playing') this.g.onRemoteState(d.l);
+    });
     this.evA.onMessage((d) => this.g.onRemoteEvent(d));
-    this.mA.onMessage((d) => { if (!this.isHost) this.g.onRemoteMatch(d); });
+    this.mA.onMessage((d, ctx) => { const from = this.peers.get(ctx.peerId)?.id; if (d?.m === this.matchId && from && from === this.players[0] && this.players[0] !== this.selfId) this.g.onRemoteMatch(d.s); });
   }
   sendLobby(d) { if (this.connected) this.lobA.send(d).catch(() => {}); }
   sendVote(d) { if (this.connected) this.voteA.send(d).catch(() => {}); }
@@ -58,7 +64,7 @@ export class Net {
   owns(actor) {
     if (!this.connected) return true;
     if (actor.isRemote) return false;
-    if (actor.isBot) { const h = this.humans; return h[actor.botIndex % h.length] === this.selfId; }
+    if (actor.isBot) { const h = this.players; return h[(actor.botIndex || 0) % h.length] === this.selfId; }
     return actor.isLocal;
   }
 
@@ -73,9 +79,9 @@ export class Net {
       if (!this.owns(a)) continue;
       list.push([a.id, +a.pos.x.toFixed(2), +a.pos.y.toFixed(2), +a.pos.z.toFixed(2), +a.yaw.toFixed(3), +a.pitch.toFixed(3), a.slot, a.loadout[a.slot] || '', Math.round(a.hp), Math.round(a.armor), a.alive ? 1 : 0, a.team, a.name, a.isBot ? 1 : 0, +(Math.hypot(a.vel.x, a.vel.z)).toFixed(1), a.ws?.swing ? 1 : 0, a.stats.kills, a.stats.deaths]);
     }
-    this.stA.send(list).catch(() => {});
+    this.stA.send({ m: this.matchId, l: list }).catch(() => {});
     this.matchAcc = (this.matchAcc || 0) + 1;
-    if (this.isHost && this.matchAcc % 10 === 0 && this.g.match) this.mA.send(this.g.match.serialize()).catch(() => {});
+    if (this.players[0] === this.selfId && this.matchAcc % 10 === 0 && this.g.match) this.mA.send({ m: this.matchId, s: this.g.match.serialize() }).catch(() => {});
   }
   event(e) { if (this.connected) this.evA.send(e).catch(() => {}); }
   async leave() { const r = this.room; this.room = null; this.connected = false; this.peers = new Map(); this.status = 'offline'; this.onLobby = this.onVote = this.onPeers = null; if (r) { try { await r.leave(); } catch { /* ignore */ } } }

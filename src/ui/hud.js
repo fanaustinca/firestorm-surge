@@ -155,7 +155,7 @@ export class Hud {
       el.querySelector('.cnt').textContent = cnt; el.querySelector('.cd').style.height = `${Math.max(0, Math.min(1, cd)) * 100}%`;
     }
     // crosshair
-    const scoped = d?.scope && g.vm.adsK > 0.6;
+    const scoped = d?.scope && g.vm.adsK > 0.35;
     this.el.scope.classList.toggle('on', !!scoped);
     const melee = d && ['melee', 'throwable', 'usable'].includes(d.kind);
     const spread = d ? ((d.spread || 0.01) * (a.ads ? 0.3 : 1) + a.bloom) * 900 + Math.hypot(a.vel.x, a.vel.z) * 1.2 + (a.onGround ? 0 : 10) : 10;

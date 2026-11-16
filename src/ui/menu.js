@@ -72,11 +72,11 @@ export class UI {
     if (MODES[mode].practice) return this.showPracticeMaps();
     this.enterLobby(mode);
   }
-  launch(map, mode, online) {
+  launch(map, mode, online, matchId) {
     if (this.lobby) this.lobby.active = false;
     this.view = 'game'; sfx.music(false);
     this.root.style.display = 'none'; this.root.innerHTML = '';
-    this.g.startMatch({ mapId: map, modeId: mode, online });
+    this.g.startMatch({ mapId: map, modeId: mode, online, matchId });
     this.g.input.enabled = true; if (!this.g.testMode) this.g.input.requestLock();
   }
 
@@ -85,7 +85,7 @@ export class UI {
     if (!this.lobby || this.lobby.closed || this.lobby.modeId !== modeId) {
       this.lobby?.close();
       const lb = this.lobby = new Lobby(this.g, modeId, { online: this.sel.online });
-      lb.onStartMatch = (map) => this.launch(map, modeId, this.g.net.connected);
+      lb.onStartMatch = (map) => this.launch(map, modeId, this.g.net.connected, `${modeId}:${lb.state.seq}:${map}`);
       lb.on(() => { if (this.view === 'lobby') this.renderLobby(); });
       lb.start();
     }

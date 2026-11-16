@@ -5,7 +5,8 @@ import * as THREE from 'three';
 const CELL = 4;
 
 export class CollisionWorld {
-  constructor() { this.boxes = []; this.grid = new Map(); this.nextId = 1; this.ceiling = Infinity; this.bounds = 30; }
+  constructor() { this.boxes = []; this.grid = new Map(); this.nextId = 1; this.ceiling = Infinity; this.bounds = 30; this.terrain = null; }
+  groundY(x, z) { return this.terrain ? this.terrain.at(x, z) : 0; }
 
   add(min, max, opts = {}) {
     const b = { min: [...min], max: [...max], id: this.nextId++, ...opts };
@@ -55,8 +56,21 @@ export class CollisionWorld {
       const t = (this.ceiling - o.y) / d.y;
       if (t >= 0 && t <= maxT && (!best || t < best.t)) best = { t, normal: new THREE.Vector3(0, -1, 0), box: { kind: 'ceiling' } };
     }
-    // ground plane y=0
-    if (d.y < -1e-6) {
+    // ground: rolling terrain (marched + bisected) or the flat y=0 plane
+    const T = this.terrain;
+    if (T && T.maxH > 0.01) {
+      const lim = best ? best.t : maxT; const yEnd = o.y + d.y * lim;
+      if (Math.min(o.y, yEnd) <= T.maxH + 0.01) {
+        const step = 0.5; let prev = 0;
+        for (let t = Math.min(step, lim); ; t = Math.min(t + step, lim)) {
+          if (o.y + d.y * t - T.at(o.x + d.x * t, o.z + d.z * t) < 0) {
+            let a = prev, b = t; for (let k = 0; k < 7; k++) { const m = (a + b) / 2; if (o.y + d.y * m - T.at(o.x + d.x * m, o.z + d.z * m) < 0) b = m; else a = m; }
+            best = { t: b, normal: T.normal(o.x + d.x * b, o.z + d.z * b), box: { kind: 'ground' } }; break;
+          }
+          prev = t; if (t >= lim) break;
+        }
+      }
+    } else if (d.y < -1e-6) {
       const t = -o.y / d.y;
       if (t >= 0 && t <= maxT && (!best || t < best.t)) best = { t, normal: new THREE.Vector3(0, 1, 0), box: { kind: 'ground' } };
     }
@@ -75,8 +89,9 @@ export class CollisionWorld {
   resolve(pos, vel, radius, height, stepUp = 0.55) {
     const res = { onGround: false, touching: [], hitCeiling: false, groundBox: null };
     const near = this.query(pos.x - radius - 1, pos.z - radius - 1, pos.x + radius + 1, pos.z + radius + 1);
-    // ground plane
-    if (pos.y <= 0) { pos.y = 0; if (vel.y < 0) vel.y = 0; res.onGround = true; }
+    // ground (terrain or plane)
+    const gy = this.groundY(pos.x, pos.z);
+    if (pos.y <= gy) { pos.y = gy; if (vel.y < 0) vel.y = 0; res.onGround = true; }
     for (let iter = 0; iter < 3; iter++) {
       for (const b of near) {
         if (b.noCollide) continue;
@@ -140,7 +155,7 @@ export class CollisionWorld {
   }
 
   groundHeightAt(x, z, fromY = 100) {
-    let h = 0;
+    let h = this.groundY(x, z);
     for (const b of this.query(x, z, x, z)) {
       if (b.noCollide || b.wallOnly) continue;
       if (x >= b.min[0] && x <= b.max[0] && z >= b.min[2] && z <= b.max[2] && b.max[1] <= fromY && b.max[1] > h) h = b.max[1];

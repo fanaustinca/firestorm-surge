@@ -27,7 +27,7 @@ export function buildItem(id, { skin = null, holiday } = {}) {
   const b = BUILDERS[id];
   if (!b) throw new Error('No model for ' + id);
   const ultra = id.endsWith('_ultra');
-  const g = b(mats(ultra ? 'ultra' : skin), { holiday: ultra ? null : holiday === undefined ? holidayFor(id) : holiday });
+  const g = b(mats(skin), { holiday: ultra ? null : holiday === undefined ? holidayFor(id) : holiday });
   g.name = id;
   shadowAll(g);
   return g;
@@ -191,7 +191,7 @@ const HAND_ITEMS = ['knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehamme
 export function attachWeapon(rig, id, skin) {
   const parts = rig.userData.parts;
   for (const mnt of [parts.gunMount, parts.weaponMount]) while (mnt.children.length) mnt.remove(mnt.children[0]);
-  rig.userData.held = 'fists'; rig.userData.foregrip = null; rig.userData.spin = null; parts.active = null;
+  rig.userData.held = 'fists'; rig.userData.foregrip = null; rig.userData.spin = null; rig.userData.wheel = null; parts.active = null;
   if (!id || id === 'fists') return;
   const w = buildItem(id, { skin });
   const deco = w.getObjectByName('holidayDeco'); if (deco) deco.visible = false;
@@ -203,7 +203,7 @@ export function attachWeapon(rig, id, skin) {
   } else {
     parts.gunMount.add(w); rig.userData.held = 'gun'; parts.active = parts.gunMount;
     const fg = findMarker(w, 'foregrip'); rig.userData.foregrip = fg ? fg.position.clone() : null;
-    rig.userData.spin = w.getObjectByName('spin');
+    rig.userData.spin = w.getObjectByName('spin'); rig.userData.wheel = w.getObjectByName('wheel');
   }
 }
 

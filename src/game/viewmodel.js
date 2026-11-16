@@ -62,13 +62,32 @@ export class ViewModel {
       this.item.scale.setScalar((POSE[this.fullId] || POSE[id])?.[6] ?? 1);
       this.holder.add(this.item);
       this.muzzle = findMarker(this.item, 'muzzle'); this.sight = findMarker(this.item, 'sight'); this.fore = findMarker(this.item, 'foregrip');
-      this.mag = this.item.getObjectByName('mag'); this.round = this.item.getObjectByName('round'); this.pump = this.item.getObjectByName('pump'); this.pilot = this.item.getObjectByName('pilot'); this.pilot2 = this.item.getObjectByName('pilot2'); this.spin = this.item.getObjectByName('spin'); this.spinV = 0; this.flickT = 0;
+      this.mag = this.item.getObjectByName('mag'); this.round = this.item.getObjectByName('round'); this.pump = this.item.getObjectByName('pump'); this.pilot = this.item.getObjectByName('pilot'); this.pilot2 = this.item.getObjectByName('pilot2'); this.spin = this.item.getObjectByName('spin'); this.wheel = this.item.getObjectByName('wheel'); this.wheelA = 0; this.spinV = 0; this.flickT = 0;
       this.seeThru = []; this.item.traverse((o) => { if (o.isMesh && o.material?.userData?.seeThru) this.seeThru.push(o); });
+      this.computeAdsLine();
       // every gun can aim down sights: synthesize a sight line over the barrel when the model has no optic
       if (!this.sight && this.muzzle && this.kind === 'gun') { this.sight = new THREE.Object3D(); this.sight.position.set(this.muzzle.position.x, this.muzzle.position.y + 0.035, 0.12); this.item.add(this.sight); }
       this.magBase = this.mag ? this.mag.position.clone() : null; this.pumpBase = this.pump ? this.pump.position.clone() : null;
     }
     this.drawK = 1;
+  }
+
+  // Aim-down-sights line: start at the sight marker and raise it until no solid part of the gun in front of
+  // the eye crosses the line of sight (fixes LMG carry handles / AK dust covers / minigun housings blocking the view).
+  computeAdsLine() {
+    this.adsSight = null; if (!this.sight || this.kind !== 'gun') return;
+    const it = this.item; const saved = [it.position.clone(), it.quaternion.clone(), it.scale.clone()];
+    it.position.set(0, 0, 0); it.quaternion.identity(); it.scale.set(1, 1, 1); it.updateMatrixWorld(true);
+    const inv = new THREE.Matrix4().copy(it.matrixWorld).invert(); const boxes = [];
+    it.traverse((o) => { if (!o.isMesh || o.material?.userData?.seeThru || o.material?.emissiveIntensity > 1.5) return; boxes.push(new THREE.Box3().setFromObject(o).applyMatrix4(inv)); });
+    it.position.copy(saved[0]); it.quaternion.copy(saved[1]); it.scale.copy(saved[2]); it.updateMatrixWorld(true);
+    const sp = this.sight.position; let y = sp.y;
+    for (let k = 0; k < 12; k++) {
+      let raised = false;
+      for (const bb of boxes) if (bb.min.z < sp.z - 0.01 && bb.min.x < sp.x + 0.008 && bb.max.x > sp.x - 0.008 && bb.min.y < y && bb.max.y > y + 0.004) { y = bb.max.y + 0.006; raised = true; }
+      if (!raised) break;
+    }
+    this.adsSight = new THREE.Vector3(sp.x, y, sp.z);
   }
 
   update(dt, a, look, opts = {}) {
@@ -100,7 +119,7 @@ export class ViewModel {
     else if (this.kind === 'usable') { pos.set(0.05, -0.2, -0.42); rot.set(0.25, -0.2, 0); }
     // ADS alignment
     if (this.adsK > 0.001 && this.sight) {
-      const k = this.item.scale.x; const s = this.sight.position; const ads = V(-s.x * k, -s.y * k, -0.12 - s.z * k + (def?.scope ? -0.05 : 0));
+      const k = this.item.scale.x; const s = (def?.scope ? null : this.adsSight) || this.sight.position; const ads = V(-s.x * k, -s.y * k, -0.12 - s.z * k + (def?.scope ? -0.05 : 0));
       ads.z = Math.min(ads.z, -0.25);
       pos.lerp(ads, this.adsK); rot.x *= 1 - this.adsK; rot.y *= 1 - this.adsK; rot.z *= 1 - this.adsK;
     }
@@ -145,7 +164,9 @@ export class ViewModel {
     // pilot flame: slow, smooth flicker (the old per-frame random scale read as the gun vibrating)
     this.flickT += dt;
     for (const pl of [this.pilot, this.pilot2]) if (pl) { const f = 0.92 + Math.sin(this.flickT * 7.3) * 0.05 + Math.sin(this.flickT * 3.1) * 0.03; pl.scale.set(f, f, f); }
-    // rotary parts (Ultra rocket wheel / minigun / GL drum) spin up while firing
+    // revolving rocket cylinder: indexes 60° per fired rocket, fired chambers show empty
+    if (this.wheel && ws) { const fired = Math.max(0, ws.def.mag - ws.mag); const tgt = -fired * Math.PI / 3; this.wheelA += (tgt - this.wheelA) * Math.min(1, dt * 14); this.wheel.rotation.z = this.wheelA; for (let i = 0; i < 6; i++) { const r = this.wheel.getObjectByName('rk' + i); if (r) r.visible = i >= fired; } }
+    // rotary parts (minigun barrels / GL drum) spin up while firing
     if (this.spin) {
       const firing = ws && a.lastShotT != null && (opts.time ?? 0) - a.lastShotT < 0.15;
       this.spinV += ((firing ? 18 : 0) - this.spinV) * Math.min(1, dt * (firing ? 6 : 2));
@@ -153,7 +174,7 @@ export class ViewModel {
     }
     this.updateHands(a);
     for (const o of this.seeThru || []) o.visible = this.adsK < 0.2;
-    this.root.visible = this.visible && !(def?.scope && this.adsK > 0.6);
+    this.root.visible = this.visible && !(def?.scope && this.adsK > 0.35);
     this.camera.fov = 64 - this.adsK * 12; this.camera.updateProjectionMatrix();
   }
 

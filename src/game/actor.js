@@ -119,11 +119,18 @@ export class Actor {
     this.pos.x += v.x * dt; this.pos.z += v.z * dt;
     this.pos.y += v.y * dt + 0.5 * ay * dt * dt;
     v.y += ay * dt;
+    const wasGround = this.onGround;
     const r = world.resolve(this.pos, v, RADIUS, HEIGHT);
+    // stick to slopes / stairs when walking down instead of hopping off every bump
+    if (!r.onGround && wasGround && v.y <= 0 && !this.climbing && !this.jumped) {
+      const gh = world.groundHeightAt(this.pos.x, this.pos.z, this.pos.y + 0.05);
+      if (this.pos.y - gh < 0.32) { this.pos.y = gh; v.y = 0; r.onGround = true; }
+    }
+    this.jumped = 0;
     const wasAir = !this.onGround;
     this.onGround = r.onGround;
     if (this.onGround) { this.jumpsLeft = this.mods.doubleJump || 0; if (wasAir) this.landed = true; }
-    if (this.pos.y < -5) { this.pos.y = 0; v.y = 0; }
+    if (this.pos.y < -5) { this.pos.y = world.groundY(this.pos.x, this.pos.z); v.y = 0; }
     return r;
   }
 }
