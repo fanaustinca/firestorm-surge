@@ -706,7 +706,7 @@ export function buildMap(id, { nav: withNav = true } = {}) {
     if (b.groundMesh) b.world.terrain.displace(b.groundMesh.geometry);
     for (const p of sp) p.y = b.world.terrain.at(p.x, p.z);
   }
-  if (env.mountains) mountainRing(b.group, env.mountains);
+  if (env.mountains) mountainRing(b.group, { bounds: b.world.bounds ?? 30, ...env.mountains });
   if (b.snowCaps) snowCaps(b);
   const nav = withNav ? buildNav(b.world) : null;
   return { id, group: b.group, world: b.world, spawns: b.spawns, nav, env, info: MAPS[id] };

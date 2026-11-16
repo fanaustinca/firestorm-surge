@@ -7,7 +7,7 @@ import { Combat } from './combat.js';
 import { Effects } from './effects.js';
 import { ViewModel } from './viewmodel.js';
 import { Match, MODES } from './match.js';
-import { BotBrain, botLoadout, botName } from './bots.js';
+import { BotBrain, botLoadout, botName, botTier } from './bots.js';
 import { buildSoldier, poseSoldier, attachWeapon, buildItem, findMarker, teamColor, buildTarget } from '../render/models.js';
 import { tex } from '../render/textures.js';
 import { makePlate, drawPlate } from '../render/nameplate.js';
@@ -148,22 +148,23 @@ export class Game {
     for (const [id, w] of wanted) {
       const team = this.match.teamFor(w.slot);
       let a = this.actors.find((x) => x.id === id);
-      if (!a && !w.human) a = this.addBot({ id, index: w.slot, team });
+      if (!a && !w.human) a = this.addBot({ id, index: w.slot, team, tier: botTier(this.net.matchId, w.slot, humans.length, mode.size) });
       if (!a) continue;
       a.botIndex = w.slot;
-      if (!w.human && !this.brains.has(a)) { const info = botLoadout(w.slot); a.setLoadout(info.loadout); a.archetype = info.archetype; this.brains.set(a, new BotBrain(this, a, info, 0.2 + ((w.slot * 37) % 10) / 30)); a.isRemote = false; a.net = null; }
+      if (!w.human && !this.brains.has(a)) { const info = botLoadout(w.slot); a.setLoadout(info.loadout); a.archetype = info.archetype; this.brains.set(a, new BotBrain(this, a, info, botTier(this.net.matchId, w.slot, humans.length, mode.size))); a.isRemote = false; a.net = null; }
+      if (!w.human) a.tier = botTier(this.net.matchId, w.slot, humans.length, mode.size);
       if (a.team !== team) { a.team = team; if (a.rig) { this.scene.remove(a.rig); a.rig = null; } if (this.owns(a)) this.respawnActor(a); }
       if (this.owns(a) && !a.alive && !(a.respawnT > 0) && !this.match.roundBased) a.respawnT = 1;
     }
   }
 
-  addBot({ id, index = this.actors.length, team, weapon, skill } = {}) {
+  addBot({ id, index = this.actors.length, team, weapon, skill, tier } = {}) {
     const info = botLoadout(index, weapon);
     const a = new Actor({ id: id || `bot-dev-${Math.random().toString(36).slice(2, 7)}`, name: botName(index), team: team || this.match.teamFor(index), isBot: true });
     a.botIndex = index; a.setLoadout(info.loadout); a.archetype = info.archetype;
     if (weapon) { const w = WEAPON_BY_ID[weapon]; if (w && w.slot <= 5) a.slot = w.slot; a.prevSpawnSlot = a.slot; }
     this.actors.push(a);
-    this.brains.set(a, new BotBrain(this, a, info, skill ?? (0.2 + ((index * 37) % 10) / 30)));
+    this.brains.set(a, new BotBrain(this, a, info, tier ?? skill ?? 'normal'));
     return a;
   }
   removeActor(a) { if (a.rig) this.scene.remove(a.rig); this.actors = this.actors.filter((x) => x !== a); this.brains.delete(a); }
@@ -299,7 +300,7 @@ export class Game {
   onProjectile(owner, p) { if (this.owns(owner) && this.net.connected) this.net.event({ t: 'proj', id: p.id, a: owner.id, w: p.def.id, k: p.kind, p: p.pos.toArray(), v: p.vel.toArray(), f: p.fuse }); }
   onWorldEvent(type, d) {
     if (!this.net.connected) return;
-    if (type === 'boom' || type === 'smoke' || type === 'flash' || type === 'fire' || type === 'ring' || type === 'barricade' || type === 'barricade_down') this.net.event({ t: 'w:' + type, ...d });
+    if (type === 'boom' || type === 'smoke' || type === 'flash' || type === 'fire' || type === 'ring' || type === 'arc' || type === 'barricade' || type === 'barricade_down') this.net.event({ t: 'w:' + type, ...d });
   }
   shakeFrom(pos, radius) { const d = pos.distanceTo(this.camera.position); this.shake = Math.max(this.shake, Math.max(0, 1 - d / (radius * 5)) * 0.5); }
 
@@ -325,11 +326,12 @@ export class Game {
     switch (e.t) {
       case 'shot': { const a = A(e.a); const d = WEAPON_BY_ID[e.w]; if (!a || !d) return; const o = new THREE.Vector3(...e.o); const muzzle = this.muzzleWorld(a, V()); for (const dir of e.d) this.combat.addBullet(a, d, o, new THREE.Vector3(...dir), muzzle, true); a.lastShotT = this.time; this.effects.muzzle(muzzle, new THREE.Vector3(...e.d[0]), 1); sfx.shot({ assault_rifle: 'rifle', ak47: 'rifle', lmg: 'rifle', burst_rifle: 'rifle', heavy_sniper: 'heavy', dmr: 'heavy', revolver: 'heavy', smg: 'smg', sawed_off: 'shotgun', tactical_shotgun: 'shotgun' }[e.w] || 'pistol', a.chest(V())); break; }
       case 'fx': { const a = A(e.a); if (!a) return; a.lastShotT = this.time; if (e.w === 'flamethrower') for (let i = 0; i < 4; i++) this.effects.flame(this.muzzleWorld(a, V()), a.aimDir(V()).multiplyScalar(16)); break; }
-      case 'proj': { const a = A(e.a); const d = WEAPON_BY_ID[e.w]; if (!a || !d) return; this.combat.spawnProj(a, d, e.k, new THREE.Vector3(...e.p), new THREE.Vector3(...e.v), { id: e.id, fuse: e.f, remote: true }); break; }
+      case 'proj': { const a = A(e.a); const d = WEAPON_BY_ID[e.w]; if (!a || !d) return; const pr = this.combat.spawnProj(a, d, e.k, new THREE.Vector3(...e.p), new THREE.Vector3(...e.v), { id: e.id, fuse: e.f, remote: true }); if (d.projScale) pr.mesh.scale.setScalar(d.projScale); break; }
       case 'w:boom': { const p = new THREE.Vector3(...e.pos); this.effects.explosion(p, e.r); sfx.explosion(p, e.r / 4.5); this.shakeFrom(p, e.r); const pr = this.combat.projs.find((q) => q.id === e.id); if (pr) { this.scene.remove(pr.mesh); this.combat.projs.splice(this.combat.projs.indexOf(pr), 1); } break; }
       case 'w:smoke': this.combat.makeSmoke(new THREE.Vector3(...e.pos), WEAPON_BY_ID.smoke_grenade.smoke); break;
       case 'w:flash': this.effects.flashBurst(new THREE.Vector3(...e.pos)); break;
       case 'w:fire': this.combat.fires.push({ pos: new THREE.Vector3(...e.pos), radius: e.radius, time: e.time, t: 0, remote: true, acc: new Map() }); this.effects.firePool(this.combat.fires[this.combat.fires.length - 1]); break;
+      case 'w:arc': this.effects.lightning(new THREE.Vector3(...e.a), new THREE.Vector3(...e.b)); break;
       case 'w:ring': this.effects.mortarRing(new THREE.Vector3(...e.pos), e.t + 0.15, e.r); break;
       case 'w:barricade': { const o = A(e.owner); if (o) this.combat.placeBarricade(o, WEAPON_BY_ID.barricade.barricade, { pos: e.pos, alongX: e.alongX, id: e.id }); break; }
       case 'w:barricade_down': { const b = this.combat.barricades.find((x) => x.id === e.id); if (b) this.combat.destroyBarricade(b); break; }
@@ -490,6 +492,7 @@ export class Game {
       for (let i = 0; i < a.count; i++) { let y = a.getY(i) - dt * (1.2 + (i % 7) * 0.12); if (y < 0) y += 18; a.setY(i, y); a.setX(i, a.getX(i) + Math.sin(t * 0.7 + i) * dt * 0.25); }
       a.needsUpdate = true; this.snow.position.set(Math.round(cam.position.x / 2) * 2, 0, Math.round(cam.position.z / 2) * 2);
     }
+    this.updateMortarMarker(p);
     // rigs
     this.effects.thermal = p.thermal.on;
     for (const a of this.actors) if (a !== p) this.updateRig(a, dt);
@@ -503,6 +506,29 @@ export class Game {
     if (p.alive && this.vm.visible && !this.noclip) this.vm.render(this.renderer);
   }
 
+  // shooter-only landing marker for the mortar (enemies get no warning)
+  updateMortarMarker(p) {
+    const def = p.ws?.def; const on = p.alive && def?.kind === 'mortar';
+    if (!this.mortarMark) {
+      const g = new THREE.Group(); g.userData.t = V();
+      const mk = (op) => new THREE.MeshBasicMaterial({ color: 0xff7a2a, transparent: true, opacity: op, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+      const flat = (geo, mat, rz = 0) => { const m = new THREE.Mesh(geo, mat); m.rotation.set(-Math.PI / 2, 0, rz); m.renderOrder = 5; g.add(m); return m; };
+      const hot = mk(0.9);
+      g.userData.reticle = flat(new THREE.RingGeometry(1.35, 1.5, 40), hot);
+      flat(new THREE.CircleGeometry(0.14, 16), hot);
+      flat(new THREE.PlaneGeometry(0.08, 0.9), hot); flat(new THREE.PlaneGeometry(0.08, 0.9), hot, Math.PI / 2);
+      g.userData.blast = flat(new THREE.RingGeometry(0.97, 1, 64), mk(0.28));
+      g.visible = false; this.scene.add(g); this.mortarMark = g;
+    }
+    const g = this.mortarMark; g.visible = !!on; if (!on) return;
+    const t = this.combat.mortarTarget(p, def, g.userData.t);
+    g.position.set(t.x, t.y + 0.06, t.z);
+    g.userData.reticle.scale.setScalar(1 + Math.sin(this.time * 6) * 0.06);
+    g.userData.blast.scale.setScalar(def.splash.radius);
+    const ready = p.ws.mag > 0 && p.ws.reloading <= 0;
+    g.userData.reticle.material.opacity = ready ? 0.9 : 0.3;
+  }
+
   // callsign + health bar: teammates always, enemies only while in direct line of sight (no wallhacks)
   updatePlate(a, dt) {
     const pl = a.plate; if (!pl) return;
@@ -513,8 +539,8 @@ export class Game {
     pl.visible = a.alive && d < (ally ? 80 : 55) && (ally || a.plateLos || p.thermal.on && a.plateLos !== false);
     if (!pl.visible) return;
     const col = a.isTarget ? '#ffd08a' : ally ? '#7fc4ff' : a.team === 'blue' ? '#7fb0ff' : a.team === 'red' ? '#ff8a7a' : '#ffb070';
-    drawPlate(pl, a.name, a.hp, a.armor, a.maxHp, col, a.ultra && a.ultraFrom);
-    const k = Math.max(1, d / 14); pl.scale.set(1.15 * k, 0.29 * k, 1);
+    drawPlate(pl, a.name, a.hp, a.armor, a.maxHp, col, a.ultra && a.ultraFrom, a.isBot ? a.tier : null);
+    const k = Math.max(1, d / 14); pl.scale.set(1.15 * k, 0.36 * k, 1);
   }
   updateRig(a, dt) {
     if (!a.rig) { a.rig = a.isTarget ? buildTarget() : buildSoldier(a.team, a.botIndex ?? 0); this.scene.add(a.rig); a.rigWeapon = null; a.plate = makePlate(); a.plate.position.y = a.isTarget ? 2.15 : 2.2; a.rig.add(a.plate); }

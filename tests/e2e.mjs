@@ -26,19 +26,20 @@ try {
   const menu = await page.evaluate(() => ({ play: !!document.querySelector('#play'), dev: typeof DEV.inspectGun === 'function', maps: document.querySelectorAll('[data-map]').length, modes: [...document.querySelectorAll('[data-mode]')].map((b) => b.dataset.mode), ver: document.querySelector('.logo .ver')?.textContent }));
   check('Menu: mode-only selection (no map picker) + version tag', menu.play && menu.dev && menu.maps === 0 && menu.modes.includes('practice') && menu.modes.length === 5 && /^v\d+\.\d+\.\d+$/.test(menu.ver || ''), `${menu.modes.join(',')} · ${menu.ver}`);
   const SPEC_IDS = ['assault_rifle', 'ak47', 'dmr', 'rocket_launcher', 'burst_rifle', 'lmg', 'heavy_sniper', 'flamethrower', 'grenade_launcher', 'mortar',
-    'pistol', 'smg', 'crossbow', 'burst_pistol', 'revolver', 'sawed_off', 'tactical_shotgun', 'taser',
+    'volt_rail', 'arc_caster', 'drum_breaker',
+    'pistol', 'smg', 'crossbow', 'burst_pistol', 'revolver', 'sawed_off', 'tactical_shotgun', 'taser', 'pocket_rocket',
     'fists', 'knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer', 'shurikens', 'slippers',
     'frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb', 'land_mine', 'medkit', 'ammo_pack', 'armor_plate', 'adrenaline', 'barricade',
     'tactical_gloves', 'spring_boots', 'bandolier', 'blast_vest', 'thermal_goggles'];
   const have = await page.evaluate(() => DEV.list().map((x) => x.split(': ')[1]));
   const missing = SPEC_IDS.filter((x) => !have.includes(x));
-  check('Every item exists (39 + 3 slot freebies + Land Mine)', missing.length === 0 && have.length === SPEC_IDS.length, missing.length ? 'missing ' + missing : `${have.length} entries`);
+  check('Every item exists (39 + 3 slot freebies + Land Mine + 4 new guns)', missing.length === 0 && have.length === SPEC_IDS.length, missing.length ? 'missing ' + missing : `${have.length} entries`);
   const meshes = await page.evaluate((ids) => ids.map((id) => { try { DEV.inspectGun(id); let n = 0; DEV.game.studio.holder.traverse((o) => { if (o.isMesh) n++; }); return [id, n]; } catch (e) { return [id, -1, e.message]; } }), SPEC_IDS);
   const thin = meshes.filter(([, n]) => n < 5);
   check('All 43 item meshes are multi-part (≥5 meshes each)', thin.length === 0, thin.length ? JSON.stringify(thin) : `min ${Math.min(...meshes.map((m) => m[1]))} meshes`);
   const ultras = await page.evaluate(() => DEV.ultras().map((id) => { DEV.inspectGun(id); let n = 0, glow = 0; DEV.game.studio.holder.traverse((o) => { if (o.isMesh) { n++; if (o.material.emissiveIntensity > 1.5) glow++; } }); return [id, n, glow]; }));
   const baseCounts = await page.evaluate(() => Object.fromEntries(DEV.ultras().map((u) => { const id = u.replace('_ultra', ''); DEV.inspectGun(id); let n = 0; DEV.game.studio.holder.traverse((o) => { if (o.isMesh) n++; }); return [id, n]; })));
-  check('Every main firearm has a distinct ULTRA model in standard colours (no neon glow)', ultras.length === 10 && ultras.every(([id, n, gl]) => n >= 10 && gl <= 2 && n !== baseCounts[id.replace('_ultra', '')]), ultras.map(([i, n, gl]) => `${i.replace('_ultra', '')}:${n}/${gl}`).join(' '));
+  check('Every main firearm has a distinct ULTRA model in standard colours (no neon glow)', ultras.length === 13 && ultras.every(([id, n, gl]) => n >= 10 && gl <= 2 && n !== baseCounts[id.replace('_ultra', '')]), ultras.map(([i, n, gl]) => `${i.replace('_ultra', '')}:${n}/${gl}`).join(' '));
   const spinners = await page.evaluate(() => { DEV.inspectGun('rocket_launcher_ultra'); const h = DEV.game.studio.holder; const wheel = h.getObjectByName('wheel'); const rockets = [0, 1, 2, 3, 4, 5].filter((i) => wheel?.getObjectByName('rk' + i)).length; DEV.inspectGun('lmg_ultra'); let barrels = 0; DEV.game.studio.holder.getObjectByName('spin')?.traverse((o) => { if (o.isMesh && o.geometry.parameters?.height > 0.6) barrels++; }); return { wheel: !!wheel, rockets, barrels, mag: DEV.weapon('rocket_launcher_ultra').mag }; });
   check('Ultra rocket launcher: single barrel fed by a 6-rocket revolving cylinder; Ultra LMG has 6 rotating barrels', spinners.wheel && spinners.rockets === 6 && spinners.mag === 6 && spinners.barrels === 6, JSON.stringify(spinners));
   const ultraStats = await page.evaluate(() => { const W = DEV.game.constructor && null; void W; const by = (id) => DEV.game.player ? null : null; void by; return null; });
@@ -76,6 +77,17 @@ try {
   check('Outdoor maps have rolling terrain + mountain ranges (indoor lab stays flat)', terr.frostbite.maxH > 0.5 && terr.jungle_temple.maxH > 0.5 && terr.frostbite.mountains && terr.underground_lab.maxH === 0, JSON.stringify(terr));
   const adsL = await page.evaluate(() => { const g = DEV.game; DEV.loadMap('cargo_yard', 'practice'); g.timeScale = 0; DEV.advance(3.3); const out = {}; for (const id of ['lmg', 'lmg_ultra', 'ak47']) { g.vm.setWeapon(id, null); out[id] = +(g.vm.adsSight.y - g.vm.sight.position.y).toFixed(3); } return out; });
   check('ADS line is raised clear of carry handles / housings', adsL.lmg > 0 && adsL.lmg_ultra > 0, JSON.stringify(adsL));
+  // the exact screen centre must not be covered by any solid part of the gun while aiming (non-scoped guns)
+  const adsC = await page.evaluate(() => { const g = DEV.game, T = DEV.THREE; const out = {};
+    for (const [s, id] of [[1, 'grenade_launcher_ultra'], [1, 'rocket_launcher_ultra'], [1, 'lmg_ultra'], [1, 'ak47'], [1, 'drum_breaker'], [2, 'pistol'], [2, 'smg'], [2, 'pocket_rocket']]) {
+      DEV.equip(s, id); DEV.select(s); DEV.advance(0.6); DEV.input({ alt: true }); DEV.advance(0.8); g.renderFrame(1 / 60);
+      const rc = new T.Raycaster(); rc.setFromCamera(new T.Vector2(0, 0), g.vm.camera); const meshes = []; g.vm.item.traverse((o) => { if (o.isMesh && o.visible && !o.material.userData?.seeThru) meshes.push(o); });
+      out[id] = rc.intersectObjects(meshes, false).length; DEV.input(null); DEV.advance(0.4);
+    }
+    return { blocked: Object.entries(out).filter(([, n]) => n).map(([k]) => k), dot: !!document.querySelector('#adsdot') }; });
+  check('Aiming down sights: nothing covers the aim point + red-dot reticle', adsC.blocked.length === 0 && adsC.dot, JSON.stringify(adsC));
+  const mtn = await page.evaluate(() => Object.fromEntries(DEV.maps().map((id) => { DEV.loadMap(id, 'practice'); let inside = 0; DEV.game.map.group.traverse((o) => { if (o.isMesh && o.material.vertexColors && o.geometry.attributes.color) { const p = o.geometry.attributes.position; for (let i = 0; i < p.count; i++) if (Math.abs(p.getX(i)) < 31 && Math.abs(p.getZ(i)) < 31) inside++; } }); return [id, inside]; })));
+  check('Mountains never intrude into the arena (no walking into them)', Object.values(mtn).every((n) => n === 0), JSON.stringify(mtn));
   // bots must be able to path to and reach upper floors (stairs, ladders, bridges)
   const reach = await page.evaluate(() => {
     const out = []; const g = DEV.game;
@@ -159,6 +171,56 @@ try {
   });
   check('Assault Rifle body shot deals 20', dmg.body === 20, `${dmg.body}`);
   check('Assault Rifle headshot deals 30', dmg.head === 30, `${dmg.head}`);
+
+  // ───────── new guns + mortar ─────────
+  const ng = await page.evaluate(() => {
+    const g = DEV.game; const god0 = g.god; DEV.loadMap('cargo_yard', 'ffa'); g.timeScale = 0; DEV.advance(3.3); DEV.clearBots(); g.god = true;
+    DEV.teleport(-12, 0, 28, -Math.PI / 2); DEV.advance(0.1);
+    const shoot = (slot, w, id, n = 1) => { DEV.equip(slot, w); DEV.select(slot); DEV.advance(0.6); for (let k = 0; k < n; k++) { DEV.aimAt(id, 'body'); DEV.input({ fire: true, firePressed: true }); g.fixedUpdate(1 / 60); DEV.input(null); DEV.advance(0.35); } };
+    const hp = (id) => DEV.bot(id).hp;
+    // Volt Rail: two bots in a line → both take damage from one slug
+    const a1 = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-6, 0, 28] }), a2 = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-2, 0, 28] });
+    const v0 = [hp(a1), hp(a2)]; shoot(1, 'volt_rail', a1); const volt = [v0[0] - hp(a1), v0[1] - hp(a2)];
+    DEV.clearBots();
+    // Arc Caster: hit one bot, lightning jumps to a neighbour 3 m away
+    const c1 = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-4, 0, 28] }), c2 = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-4, 0, 31] });
+    const w0 = hp(c2); shoot(1, 'arc_caster', c1); const arc = w0 - hp(c2);
+    DEV.clearBots();
+    // Drum Breaker is full-auto: holding the trigger keeps firing
+    DEV.equip(1, 'drum_breaker'); DEV.select(1); DEV.advance(0.6); const m0 = g.player.ws.mag; DEV.input({ fire: true }); DEV.advance(1.0); DEV.input(null); const drum = m0 - g.player.ws.mag;
+    // Pocket Rocket: explosive pistol round
+    const r1 = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-5, 0, 28] }); const r0 = hp(r1); shoot(2, 'pocket_rocket', r1); DEV.advance(0.5); const rocket = r0 - hp(r1);
+    DEV.clearBots();
+    // Mortar: 3-shell tube, landing marker shows only while holding it
+    DEV.equip(1, 'mortar'); DEV.select(1); DEV.advance(0.6); g.renderFrame(1 / 60); const mk = !!g.mortarMark?.visible; const md = DEV.weapon('mortar');
+    DEV.select(2); DEV.advance(0.6); g.renderFrame(1 / 60); const mkOff = !g.mortarMark.visible;
+    g.god = god0;
+    return { volt, arc, drum, rocket, mortar: { mag: md.mag, radius: md.splash.radius, marker: mk, hiddenOtherwise: mkOff }, ultraCluster: DEV.weapon('mortar_ultra').cluster };
+  });
+  check('Volt Rail slug pierces both enemies in line', ng.volt[0] > 0 && ng.volt[1] > 0, JSON.stringify(ng.volt));
+  check('Arc Caster lightning chains to a nearby enemy', ng.arc > 0, `${ng.arc} chain dmg`);
+  check('Drum Breaker is full-auto; Pocket Rocket explodes', ng.drum >= 4 && ng.rocket >= 50, `drum ${ng.drum} shells/s · rocket ${ng.rocket}`);
+  check('Mortar buffed (3-shell tube, 12.5 m) + shooter-only landing marker; Ultra shells cluster', ng.mortar.mag === 3 && ng.mortar.radius >= 12 && ng.mortar.marker && ng.mortar.hiddenOtherwise && ng.ultraCluster === 3, JSON.stringify(ng.mortar));
+
+  // ───────── bot tiers ─────────
+  const tiers = await page.evaluate(async () => {
+    const bt = DEV.botTier; let maxVet = 0, withVet = 0, casual = 0, normal = 0, stable = true;
+    for (let k = 0; k < 300; k++) { const seed = 'ffa:' + k + ':cargo_yard'; let v = 0; for (let s = 1; s < 8; s++) { const t = bt(seed, s, 1, 8); if (t !== bt(seed, s, 1, 8)) stable = false; if (t === 'veteran') v++; else if (t === 'casual') casual++; else normal++; } maxVet = Math.max(maxVet, v); if (v) withVet++; }
+    // casual bot: plants its feet while aiming, never swaps off its primary
+    const g = DEV.game; const god0 = g.god; DEV.loadMap('cargo_yard', 'ffa'); g.timeScale = 0; DEV.advance(3.3); DEV.clearBots(); g.god = true;
+    DEV.teleport(-12, 0, 28, Math.PI / 2); DEV.advance(0.1);
+    const id = DEV.spawnBot('ffa', 'rocket_launcher', { at: [-4, 0, 28], tier: 'casual' }); const bot = g.actors.find((a) => a.id === id); bot.yaw = Math.PI / 2;
+    DEV.advance(2.5); const p0 = bot.pos.clone(); DEV.advance(2.0); const moved = bot.pos.distanceTo(p0); const slot = bot.slot; DEV.clearBots();
+    const vid = DEV.spawnBot('ffa', 'ak47', { at: [-4, 0, 24], tier: 'veteran' }); const vb = g.actors.find((a) => a.id === vid); vb.yaw = Math.PI / 2;
+    let vjump = 0; const vp = vb.pos.clone(); for (let i = 0; i < 40; i++) { DEV.advance(0.1); if (!vb.onGround) vjump++; } const vmoved = vb.pos.distanceTo(vp);
+    g.god = god0; DEV.clearBots();
+    return { maxVet, withVet, casual, normal, stable, casualMoved: +moved.toFixed(2), casualSlot: slot, vetMoved: +vmoved.toFixed(2), vetAir: vjump, plate: bot.tier };
+  });
+  check('Bot tiers: 0–1 veteran per match, rest split casual/normal (deterministic for all peers)', tiers.maxVet === 1 && tiers.withVet > 100 && tiers.withVet < 250 && tiers.casual > 300 && tiers.normal > 300 && tiers.stable, JSON.stringify(tiers));
+  check('Casual bots stand still to aim and keep their weapon; veterans move + jump while fighting', tiers.casualMoved < 0.3 && tiers.casualSlot === 1, JSON.stringify(tiers));
+  check('Veteran bots zig-zag and jump while shooting', tiers.vetMoved > 1 && tiers.vetAir > 0, JSON.stringify(tiers));
+  // restore the shared red-vs-blue state the following checks expect (frozen blue bot in front of the player)
+  await page.evaluate(() => { const g = DEV.game; DEV.loadMap('cargo_yard', 'red_vs_blue'); g.timeScale = 0; DEV.advance(3.3); DEV.clearBots(); DEV.teleport(-10, 0, 28, -Math.PI / 2); DEV.advance(0.1); DEV.spawnBot('blue', 'assault_rifle', { frozen: true, at: [-4, 0, 28] }); DEV.equip(1, 'assault_rifle'); DEV.select(1); DEV.advance(0.6); });
 
   // ───────── slippers → EMOTIONAL DAMAGE ─────────
   const emo = await page.evaluate(() => {

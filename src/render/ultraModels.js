@@ -225,8 +225,34 @@ function mortar_ultra(m) {
   return g;
 }
 
+function volt_rail_ultra(m, opt) {
+  const g = base('volt_rail', m, opt);
+  for (const sx of [-1, 1]) { P(g, rbox(0.012, 0.024, 0.5, 0.003), m.darksteel, sx * 0.045, 0.02, -0.45); for (let i = 0; i < 5; i++) P(g, torus(0.016, 0.004, 14), NEON(), sx * 0.045, 0.02, -0.28 - i * 0.08); }
+  P(g, rbox(0.12, 0.012, 0.05, 0.004), m.gunmetal, 0, 0.02, -0.72);
+  P(g, rbox(0.06, 0.05, 0.1, 0.008), m.gunmetal, 0, -0.04, -0.2); P(g, box(0.062, 0.006, 0.08), PINK(), 0, -0.012, -0.2);
+  emblem(g, 0.04, -0.05);
+  return g;
+}
+function arc_caster_ultra(m, opt) {
+  const g = base('arc_caster', m, opt);
+  for (const sx of [-1, 1]) { P(g, cylZ(0.008, 0.008, 0.28, 10), m.darksteel, sx * 0.05, 0.04, -0.34); for (let i = 0; i < 8; i++) P(g, torus(0.015, 0.003, 12), PINK(), sx * 0.05, 0.04, -0.22 - i * 0.03); P(g, sphere(0.014, 12, 10), NEON(), sx * 0.05, 0.04, -0.49); }
+  P(g, torus(0.05, 0.005, 24), NEON(), 0, 0.04, -0.46);
+  P(g, cylZ(0.035, 0.035, 0.12, 16), m.gunmetal, 0, -0.06, -0.06);
+  emblem(g, 0.05, 0.0);
+  return g;
+}
+function drum_breaker_ultra(m, opt) {
+  const g = base('drum_breaker', m, opt);
+  const d2 = drum(g, m, -0.12, -0.08, 0.08, 0.06); d2.name = 'drum2'; d2.position.x = 0.072;
+  P(g, cylZ(0.016, 0.016, 0.3, 14), m.gunmetal, 0, 0.0, -0.4);                         // under-barrel second tube
+  P(g, rbox(0.07, 0.01, 0.3, 0.003), NEON(), 0, 0.08, -0.3);
+  emblem(g, 0.06, -0.1);
+  return g;
+}
+
 export const ULTRA_BUILDERS = {
   assault_rifle_ultra, ak47_ultra, dmr_ultra, rocket_launcher_ultra, burst_rifle_ultra, lmg_ultra,
   heavy_sniper_ultra, flamethrower_ultra, grenade_launcher_ultra, mortar_ultra,
+  volt_rail_ultra, arc_caster_ultra, drum_breaker_ultra,
 };
 void cylY; void sphere; void holoSight; void rbox;

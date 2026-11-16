@@ -48,8 +48,18 @@ add({ id: 'grenade_launcher', name: 'Grenade Launcher', slot: 1, price: 1000, sp
   kind: 'projectile', proj: 'gl_shell', mode: 'semi', interval: 0.67, dmg: 150, head: 150, mag: 4, reserve: 8, reload: 2.6, range: 60, vel: 24,
   splash: { radius: 6.5, max: 135, min: 50 }, knockback: 9, bounce: true, fuse: 2.2, recoil: 0.04, ads: 1.3, desc: 'Revolving drum of bouncing shells.' });
 add({ id: 'mortar', name: 'Mortar Launcher', slot: 1, price: 1300, speed: 0.80,
-  kind: 'mortar', proj: 'mortar_shell', mode: 'semi', interval: 0.8, dmg: 280, head: 280, mag: 1, reserve: 3, reload: 3.2, range: 70, minRange: 12,
-  splash: { radius: 11, max: 210, min: 80 }, knockback: 14, ads: 1.2, desc: 'High-arc shell, 11 m devastation. No warning.' });
+  kind: 'mortar', proj: 'mortar_shell', mode: 'semi', interval: 0.5, dmg: 340, head: 340, mag: 3, reserve: 12, reload: 2.3, range: 85, minRange: 5,
+  splash: { radius: 12.5, max: 250, min: 120 }, knockback: 16, ads: 1.2, desc: '3-shell tube, fast arc, 12.5 m devastation. Landing marker only you can see.' });
+
+add({ id: 'volt_rail', name: 'Volt Rail', slot: 1, price: 1500, speed: 0.92,
+  kind: 'bullet', mode: 'semi', interval: 0.95, dmg: 90, head: 150, mag: 5, reserve: 25, reload: 2.4, range: 100, vel: 1400,
+  spread: 0.002, recoil: 0.06, pierce: true, ads: 1.0, desc: 'Coil railgun. Each slug pierces every enemy in line.' });
+add({ id: 'arc_caster', name: 'Arc Caster', slot: 1, price: 1250, speed: 0.98,
+  kind: 'bullet', mode: 'auto', interval: 0.1, dmg: 17, head: 22, mag: 40, reserve: 160, reload: 2.2, range: 28, vel: 500,
+  spread: 0.02, recoil: 0.012, chain: { n: 2, r: 7, f: 0.55 }, ads: 1.0, desc: 'Lightning bolts arc from the target to 2 enemies nearby.' });
+add({ id: 'drum_breaker', name: 'Drum Breaker', slot: 1, price: 1150, speed: 0.95,
+  kind: 'pellet', mode: 'auto', interval: 0.22, pellets: 7, dmg: 10, head: 14, mag: 16, reserve: 64, reload: 2.8, range: 13, vel: 300,
+  spread: 0.075, recoil: 0.05, ads: 1.0, desc: 'Full-auto drum shotgun. Clears rooms.' });
 
 // ───────────── Slot 2: Secondary ─────────────
 add({ id: 'pistol', name: 'Standard Pistol', slot: 2, free: true, price: 0, speed: 1.10,
@@ -73,6 +83,9 @@ add({ id: 'sawed_off', name: 'Sawed-Off Double-Barrel', slot: 2, price: 650, spe
 add({ id: 'tactical_shotgun', name: 'Tactical Shotgun', slot: 2, price: 750, speed: 1.00,
   kind: 'pellet', mode: 'semi', interval: 0.700, pellets: 8, dmg: 11, head: 16, mag: 5, reserve: 25, reload: 0.55, perShell: true, range: 14, vel: 300,
   spread: 0.06, recoil: 0.07, ads: 1.15, desc: 'Pump action, shell-by-shell reload.' });
+add({ id: 'pocket_rocket', name: 'Pocket Rocket', slot: 2, price: 800, speed: 1.0,
+  kind: 'projectile', proj: 'rocket', projScale: 0.5, mode: 'semi', interval: 0.55, dmg: 70, head: 70, mag: 3, reserve: 15, reload: 1.8, range: 60, vel: 55,
+  splash: { radius: 3.2, max: 55, min: 20 }, knockback: 9, recoil: 0.05, ads: 1.0, desc: 'Mini-rocket pistol. Shoot your feet to rocket-jump.' });
 add({ id: 'taser', name: 'Taser', slot: 2, price: 550, speed: 1.00,
   kind: 'taser', mode: 'semi', interval: 0.5, dmg: 15, head: 15, mag: 1, reserve: Infinity, reload: 4.0, recharge: true, range: 8,
   stun: { time: 1.3, slow: 0.65 }, ads: 1.1, desc: '8 m tether. Stuns, slows 65% and locks weapons.' });
@@ -157,7 +170,10 @@ export const ULTRAS = [
   U('heavy_sniper', { interval: 0.5, dmg: 210, head: 400, mag: 4, reserve: 16, vel: 1400, range: 120, pierce: true, desc: 'Railgun. Slugs pierce through every enemy in line.' }),
   U('flamethrower', { dmg: 20, head: 20, mag: 300, reserve: 300, range: 24, cone: 0.26, twin: true, burn: { dps: 10, time: 4 }, desc: 'Twin nozzles, enormous fuel tank, 24 m inferno.' }),
   U('grenade_launcher', { interval: 0.35, dmg: 170, head: 170, mag: 12, reserve: 24, splash: { radius: 7.5, max: 155, min: 55 }, desc: '12-shell rotary drum.' }),
-  U('mortar', { interval: 0.45, dmg: 340, head: 340, mag: 4, reserve: 8, reload: 3.0, splash: { radius: 13, max: 250, min: 95 }, desc: 'Quad-tube battery. 4 shells per reload, bigger blasts.' }),
+  U('volt_rail', { interval: 0.55, dmg: 125, head: 210, mag: 8, reserve: 32, reload: 2.0, desc: 'Tri-coil railgun. 8 piercing slugs, rapid recharge.' }),
+  U('arc_caster', { interval: 0.08, dmg: 21, head: 28, mag: 80, reserve: 240, range: 34, chain: { n: 4, r: 10, f: 0.65 }, desc: 'Tesla tower. Every bolt forks to 4 more enemies.' }),
+  U('drum_breaker', { interval: 0.16, pellets: 9, dmg: 11, head: 15, mag: 32, reserve: 96, reload: 3.0, desc: 'Twin-drum breaker. 32 shells of pure room-clearing.' }),
+  U('mortar', { interval: 0.3, dmg: 420, head: 420, mag: 6, reserve: 24, reload: 2.2, splash: { radius: 15, max: 300, min: 150 }, cluster: 3, desc: 'Six-shell battery. Every shell bursts into 3 bomblets.' }),
 ];
 export const ULTRA_OF = Object.fromEntries(ULTRAS.map((u) => [u.base, u.id]));
 export const baseId = (id) => (id && id.endsWith('_ultra') ? id.slice(0, -6) : id);

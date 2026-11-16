@@ -46,13 +46,16 @@ export class Terrain {
 }
 
 // Ring of low-poly mountains outside the arena. style: { color, snow, height, count, inner, outer, seed }
-export function mountainRing(group, { color = 0x8a7a6a, snow = null, height = 26, count = 22, inner = 48, outer = 80, seed = 3, rock = 0.85 } = {}) {
+export function mountainRing(group, { color = 0x8a7a6a, snow = null, height = 26, count = 22, inner = 48, outer = 80, seed = 3, rock = 0.85, bounds = 30 } = {}) {
   const r = rng(seed); const geos = [];
   for (let k = 0; k < count; k++) {
     const a = (k / count) * Math.PI * 2 + r() * 0.25; const d = inner + r() * (outer - inner); const h = height * (0.55 + r() * 0.7); const w = 14 + r() * 18;
+    // keep the whole jittered base outside the square arena (corners reach bounds·√2 on the diagonals)
+    const edge = bounds / Math.max(Math.abs(Math.cos(a)), Math.abs(Math.sin(a)));
+    const dd = Math.max(d, edge + 5 + w * 1.25);
     const g = new THREE.ConeGeometry(w, h, 7 + ((r() * 4) | 0), 4); const p = g.attributes.position;
     for (let i = 0; i < p.count; i++) { const y = p.getY(i); if (y < h / 2 - 0.01) { const jitter = 1 + (r() - 0.5) * 0.35; p.setX(i, p.getX(i) * jitter); p.setZ(i, p.getZ(i) * jitter); p.setY(i, y + (r() - 0.5) * h * 0.08); } }
-    g.translate(Math.cos(a) * d, h / 2 - 2, Math.sin(a) * d);
+    g.translate(Math.cos(a) * dd, h / 2 - 2, Math.sin(a) * dd);
     const ng = g.toNonIndexed(); ng.computeVertexNormals();
     const c = new Float32Array(ng.attributes.position.count * 3); const base = new THREE.Color(color), white = new THREE.Color(snow ?? color), tmp = new THREE.Color();
     for (let i = 0; i < ng.attributes.position.count; i++) {

@@ -1,5 +1,6 @@
 // window.DEV — Chrome F12 console API for rapid testing.
 import * as THREE from 'three';
+import { botTier } from './game/bots.js';
 import { WEAPONS, WEAPON_BY_ID, ULTRA_OF, ULTRAS } from './data/weapons.js';
 import { MAPS } from './world/maps.js';
 import { MODES } from './game/match.js';
@@ -44,7 +45,7 @@ export function installDev(game) {
     spawnBot(team, weaponId, opts = {}) {
       if (!g.match) throw new Error('Start a match first (DEV.loadMap)');
       const p = P(); team = team || (p.team === 'red' ? 'blue' : p.team === 'blue' ? 'red' : 'ffa');
-      const a = g.addBot({ index: 100 + g.actors.length, team, weapon: weaponId });
+      const a = g.addBot({ index: 100 + g.actors.length, team, weapon: weaponId, tier: opts.tier });
       a.dev = true;
       let pos = opts.at ? new THREE.Vector3(...opts.at) : null;
       if (!pos && opts.ahead != null && p) pos = p.pos.clone().addScaledVector(p.forward(new THREE.Vector3()), opts.ahead);
@@ -82,7 +83,7 @@ export function installDev(game) {
       const pr = g.combat.spawnProj(p, d, d.proj, new THREE.Vector3(x, y + 1, z), new THREE.Vector3(0, impact ? -8 : -1, 0), { fuse: impact ? Infinity : 0.05 });
       return pr.id;
     },
-    game: g, profile,
+    game: g, profile, THREE, botTier,
   };
   window.DEV = DEV;
   return DEV;

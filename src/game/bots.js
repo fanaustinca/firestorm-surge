@@ -108,6 +108,9 @@ const ARCHETYPES = [
   { name: 'Artillery', l: { 1: 'mortar', 2: 'pistol', 3: 'scythe', 4: 'land_mine' }, range: [20, 50] },
   { name: 'Rocketeer', l: { 1: 'rocket_launcher', 2: 'crossbow', 3: 'slippers', 4: 'frag', 6: 'spring_boots' }, range: [10, 35] },
   { name: 'Reaper', l: { 1: 'assault_rifle', 2: 'taser', 3: 'scythe', 4: 'flashbang' }, range: [3, 20], melee: true },
+  { name: 'Lineman', l: { 1: 'volt_rail', 2: 'pistol', 3: 'knife', 4: 'smoke_grenade' }, range: [20, 55] },
+  { name: 'Stormcaller', l: { 1: 'arc_caster', 2: 'burst_pistol', 3: 'bat', 4: 'flashbang' }, range: [8, 24] },
+  { name: 'Bulldozer', l: { 1: 'drum_breaker', 2: 'pocket_rocket', 3: 'sledgehammer', 4: 'frag' }, range: [3, 11] },
 ];
 export function botLoadout(index, forceWeapon) {
   const a = ARCHETYPES[index % ARCHETYPES.length];
@@ -121,12 +124,32 @@ void WEAPONS; void bySlot;
 const BOT_NAMES = ['Viper', 'Havoc', 'Rook', 'Nova', 'Talon', 'Blitz', 'Ghost', 'Mako', 'Echo', 'Jinx', 'Onyx', 'Raptor', 'Sable', 'Kilo', 'Torch', 'Mamba', 'Wraith', 'Bolt', 'Cinder', 'Frost'];
 export const botName = (i) => BOT_NAMES[i % BOT_NAMES.length] + (i >= BOT_NAMES.length ? ' ' + (1 + Math.floor(i / BOT_NAMES.length)) : '');
 
+// ───── skill tiers ─────
+// casual:  slow + sloppy, never switches weapons or throws, never jumps, plants its feet to shoot.
+// normal:  inaccurate, stands still to snipe, otherwise walks / hops while shooting (no zig-zag dodging).
+// veteran: 0–1 per match. Zig-zags + jumps while firing, swaps weapons, moves while scoped. Good, not an aimbot.
+export const TIERS = {
+  casual: { skill: 0.12, react: [0.95, 0.6], err: 2.0, settleMin: 0.75, settleRate: 0.25, turn: 1.9, head: 0, lag: 0.32, swap: false, throws: false, jump: false, dodge: 0.25, strafe: 0, flip: [9, 9] },
+  normal: { skill: 0.35, react: [0.6, 0.4], err: 1.45, settleMin: 0.55, settleRate: 0.35, turn: 2.8, head: 0.04, lag: 0.2, swap: true, throws: true, jump: true, dodge: 0.55, strafe: 0.45, flip: [1.4, 1.6], hop: [3.5, 4] },
+  veteran: { skill: 0.65, react: [0.36, 0.22], err: 1.0, settleMin: 0.38, settleRate: 0.45, turn: 4.0, head: 0.12, lag: 0.1, swap: true, throws: true, jump: true, dodge: 0.85, strafe: 1, flip: [0.28, 0.4], hop: [1.4, 1.8], zigzag: true, scopeMove: true },
+};
+function hashStr(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+// Deterministic from the match id so every peer agrees: about half of matches get exactly one veteran,
+// the remaining bots are split between casual and normal.
+export function botTier(seed, slot, firstBot, size) {
+  const h = hashStr(String(seed)); const bots = size - firstBot; if (bots <= 0) return 'normal';
+  if (h % 100 < 55 && slot === firstBot + ((h >>> 8) % bots)) return 'veteran';
+  return hashStr(seed + ':' + slot) % 100 < 50 ? 'casual' : 'normal';
+}
+
 // Deliberately beatable: ~100° view cone, real occlusion (walls, smoke, flash blindness),
 // slow reactions, sloppy aim that improves the longer a target stays in view.
 const VIEW_COS = Math.cos(THREE.MathUtils.degToRad(52));
 export class BotBrain {
-  constructor(game, actor, info, skill = 0.4) {
-    this.g = game; this.a = actor; this.info = info; this.skill = skill;
+  constructor(game, actor, info, tier = 'normal') {
+    if (typeof tier === 'number') tier = tier < 0.3 ? 'casual' : tier < 0.6 ? 'normal' : 'veteran';
+    this.tier = TIERS[tier] ? tier : 'normal'; this.T = TIERS[this.tier]; actor.tier = this.tier;
+    this.g = game; this.a = actor; this.info = info; this.skill = this.T.skill; this.aimErrT = V(); this.hopT = 0.6 + Math.random() * 1.6;
     this.state = 'roam'; this.target = null; this.lastSeen = null; this.lastSeenT = -99; this.seenFor = 0; this.visible = false;
     this.path = null; this.pathGoal = null; this.pathT = 0; this.goal = null;
     this.think_t = Math.random() * 0.15; this.strafe = 1; this.strafeT = 0; this.stuckT = 0; this.lastPos = actor.pos.clone();
@@ -159,7 +182,7 @@ export class BotBrain {
       for (const p of g.combat.projs) {
         if (!['frag', 'gl_shell', 'sticky', 'molotov'].includes(p.kind) || p.owner === a || !g.hostile(p.owner, a)) continue;
         const r = (p.def.splash?.radius || 4.5) + 1;
-        if (p.pos.distanceTo(a.pos) < r && g.map.world.lineOfSight(a.eye(_a), p.pos) && Math.random() < 0.6 + this.skill * 0.4) { this.dodge = V().subVectors(a.pos, p.pos).setY(0).normalize(); if (this.dodge.lengthSq() < 0.1) this.dodge.set(1, 0, 0); break; }
+        if (p.pos.distanceTo(a.pos) < r && g.map.world.lineOfSight(a.eye(_a), p.pos) && Math.random() < this.T.dodge) { this.dodge = V().subVectors(a.pos, p.pos).setY(0).normalize(); if (this.dodge.lengthSq() < 0.1) this.dodge.set(1, 0, 0); break; }
       }
       for (const f of g.combat.fires) if (f.pos.distanceTo(a.pos) < f.radius + 0.5 && g.hostile(f.owner, a)) this.dodge = V().subVectors(a.pos, f.pos).setY(0).normalize();
     }
@@ -172,7 +195,7 @@ export class BotBrain {
       if (d < bd && this.canSee(t)) { best = t; bd = d; }
     }
     if (best) {
-      if (best !== this.target || !this.visible) { this.reactT = 0.45 + (1 - this.skill) * 0.6 + Math.random() * 0.25; this.seenFor = 0; }
+      if (best !== this.target || !this.visible) { this.reactT = this.T.react[0] + Math.random() * this.T.react[1]; this.seenFor = 0; }
       this.seenFor += dt; this.target = best; this.lastSeen = best.pos.clone(); this.lastSeenT = g.time;
     } else if (this.target && g.time - this.lastSeenT > 5) this.target = null;
     this.visible = !!best;
@@ -203,12 +226,13 @@ export class BotBrain {
     else if (slot === 2 && sw && sw.mag === 0 && pw.mag > 0) slot = 1;
     else if (slot !== 2 || dist > 16) slot = 1;
     if (dist < 2.2 && wsOf(3)?.def.kind === 'melee' && pdef?.kind !== 'pellet' && pdef?.kind !== 'flame') slot = 3;
-    if (!visible && wsOf(5) && wsOf(5).usableCd <= 0 && ((wsOf(5).def.heal && hpFrac < 0.55) || (wsOf(5).def.armor && a.armor < 10) || state === 'cover')) slot = 5;
+    if (!this.T.swap) slot = primaryOk ? 1 : sw && (sw.mag > 0 || sw.reserve > 0 || sw.def.recharge) ? 2 : 3;   // casual: sticks to its gun until it is bone dry
+    if (this.T.swap && !visible && wsOf(5) && wsOf(5).usableCd <= 0 && ((wsOf(5).def.heal && hpFrac < 0.55) || (wsOf(5).def.armor && a.armor < 10) || state === 'cover')) slot = 5;
     // grenades / mines
     this.throwT -= dt; this.mineT -= dt;
     const tw = wsOf(4);
-    if (tw && tw.count > 0 && !tw.def.mine && this.throwT <= 0 && tgt && this.lastSeen && dist > 8 && dist < 24 && Math.random() < 0.08 + (state === 'smoke' ? 0.2 : 0)) { this.throwing = 1.2; this.throwT = 9 + Math.random() * 9; }
-    if (tw && tw.count > 0 && tw.def.mine && this.mineT <= 0 && !visible && a.onGround) { this.throwing = 1.0; this.mineT = 14 + Math.random() * 12; this.placingMine = true; }
+    if (this.T.throws && tw && tw.count > 0 && !tw.def.mine && this.throwT <= 0 && tgt && this.lastSeen && dist > 8 && dist < 24 && Math.random() < 0.08 + (state === 'smoke' ? 0.2 : 0)) { this.throwing = 1.2; this.throwT = 9 + Math.random() * 9; }
+    if (this.T.throws && tw && tw.count > 0 && tw.def.mine && this.mineT <= 0 && !visible && a.onGround) { this.throwing = 1.0; this.mineT = 14 + Math.random() * 12; this.placingMine = true; }
     if (this.throwing > 0) slot = 4;
     if (slot !== this.wantSlot) { if (g.time > this.switchT) { this.wantSlot = slot; this.switchT = g.time + 0.6; } }
     // ── movement goal
@@ -238,10 +262,12 @@ export class BotBrain {
     }
     if (!this.goal) this.path = null;
     // aim error: large at first sight, tightens with time on target
-    const settle = Math.max(0.35, 1.4 - this.seenFor * 0.5);
-    const err = ((1 - this.skill) * 1.3 + 0.25) * settle;
-    this.aimErr.set((Math.random() - 0.5) * err, (Math.random() - 0.5) * err * 0.7, (Math.random() - 0.5) * err);
-    this.strafeT -= dt; if (this.strafeT <= 0) { this.strafe = Math.random() < 0.5 ? -1 : 1; this.strafeT = 0.8 + Math.random() * 1.6; }
+    // a wandering aim offset (not fresh noise each tick), so shots drift around the target like a human's
+    const settle = Math.max(this.T.settleMin, 1.4 - this.seenFor * this.T.settleRate);
+    const err = this.T.err * settle;
+    this.aimErrT.set((Math.random() - 0.5) * err, (Math.random() - 0.5) * err * 0.75, (Math.random() - 0.5) * err);
+    this.aimErr.lerp(this.aimErrT, 0.45);
+    this.strafeT -= dt; if (this.strafeT <= 0) { this.strafe = this.T.zigzag ? -this.strafe || 1 : (Math.random() < 0.5 ? -1 : 1); this.strafeT = this.T.flip[0] + Math.random() * this.T.flip[1]; }
   }
 
   findCover(tgt) {
@@ -298,20 +324,32 @@ export class BotBrain {
       }
     }
     const tgt = this.target; const visible = this.visible && !!tgt && g.time - this.lastSeenT < 0.3;
-    if (this.state === 'engage' && tgt && !a.climbing) {
-      const toT = V().subVectors(tgt.pos, a.pos).setY(0).normalize(); const side = V(-toT.z, 0, toT.x);
-      wish.addScaledVector(side, this.strafe * (this.goal ? 0.35 : 0.7));
-      if (wish.lengthSq() > 0) wish.normalize();
+    const T = this.T; const cws = a.ws;
+    if (this.state === 'engage' && tgt && !a.climbing && visible && !this.dodge) {
+      const dT = a.pos.distanceTo(tgt.pos);
+      const inRange = !cws || cws.def.kind === 'melee' || !cws.def.range || dT < cws.def.range * 0.95;
+      const sniping = cws?.def.scope && (a.ads || dT > 20);
+      if (T.strafe === 0 && inRange && this.wantSlot !== 3) wish.set(0, 0, 0);                 // casual: plants its feet to aim
+      else if (sniping && !T.scopeMove) wish.set(0, 0, 0);                                       // normal: stands still to snipe
+      else {
+        const toT = V().subVectors(tgt.pos, a.pos).setY(0).normalize(); const side = V(-toT.z, 0, toT.x);
+        wish.addScaledVector(side, this.strafe * T.strafe * (this.goal ? 0.5 : 1));
+        if (wish.lengthSq() > 0) wish.normalize();
+        if (T.zigzag) wish.multiplyScalar(1); else wish.multiplyScalar(0.7);                      // normal walks, veteran sprints the zig-zag
+        if (T.jump && T.hop && a.onGround) { this.hopT -= dt; if (this.hopT <= 0) { it.jumpPressed = true; this.hopT = T.hop[0] + Math.random() * T.hop[1]; } }
+      }
     }
     // stuck → hop + repath
     const moved = a.pos.distanceTo(this.lastPos); this.lastPos.copy(a.pos);
-    if (wish.lengthSq() > 0.1 && moved < 0.02 && a.onGround && !a.climbing) { this.stuckT += dt; if (this.stuckT > 0.7) { it.jumpPressed = true; this.pathT = 0; this.strafe *= -1; this.stuckT = 0; wish.add(V(-wish.z, 0, wish.x).multiplyScalar(this.strafe)).normalize(); } } else this.stuckT = 0;
+    if (wish.lengthSq() > 0.1 && moved < 0.02 && a.onGround && !a.climbing) { this.stuckT += dt; if (this.stuckT > 0.7) { it.jumpPressed = T.jump; this.pathT = 0; this.strafe *= -1; this.stuckT = 0; wish.add(V(-wish.z, 0, wish.x).multiplyScalar(this.strafe)).normalize(); } } else this.stuckT = 0;
     it.wish.copy(wish);
     // aim
     let aimPt = null;
     if (tgt && visible && (this.state === 'engage' || this.throwing > 0)) {
       const ws = a.ws;
-      aimPt = (ws?.def.kind === 'mortar') ? tgt.pos.clone() : (Math.random() < this.skill * 0.2 ? tgt.headPos(V()) : tgt.chest(V()).add(V(0, -0.15, 0)));
+      if (this.headPick == null || Math.random() < 0.05) this.headPick = Math.random() < T.head;
+      aimPt = (ws?.def.kind === 'mortar') ? tgt.pos.clone() : (this.headPick ? tgt.headPos(V()) : tgt.chest(V()).add(V(0, -0.15, 0)));
+      aimPt.addScaledVector(tgt.vel, -T.lag);                                                     // human tracking lag: aims where you just were
       if (ws && ws.def.kind === 'projectile' && ws.def.vel) aimPt.addScaledVector(tgt.vel, (a.pos.distanceTo(tgt.pos) / ws.def.vel) * this.skill);
       if (ws?.def.kind === 'throwable' || ws?.def.proj === 'gl_shell') aimPt.y += a.pos.distanceTo(tgt.pos) * 0.12;
       aimPt.addScaledVector(this.aimErr, Math.min(2.4, 0.5 + a.pos.distanceTo(tgt.pos) * 0.035));
@@ -321,7 +359,7 @@ export class BotBrain {
     if (aimPt && this.state !== 'blind') {
       const d = V().subVectors(aimPt, a.eye(V()));
       const yaw = Math.atan2(-d.x, -d.z), pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
-      const turn = (2.6 + this.skill * 3.5) * dt;
+      const turn = T.turn * dt;
       let dy = yaw - a.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
       a.yaw += THREE.MathUtils.clamp(dy, -turn, turn); a.pitch += THREE.MathUtils.clamp(pitch - a.pitch, -turn, turn);
     }
@@ -333,9 +371,9 @@ export class BotBrain {
       const d = a.pos.distanceTo(tgt.pos);
       const aimDot = a.aimDir(V()).dot(V().subVectors(tgt.chest(V()), a.eye(V())).normalize());
       const inRange = ws.def.kind === 'melee' ? d < ws.def.reach + 0.6 : ws.def.range ? d < ws.def.range * 1.05 : true;
-      if (aimDot > 0.95 && inRange && ws.def.kind !== 'usable' && ws.def.kind !== 'throwable') fire = true;
+      if (aimDot > (this.tier === 'casual' ? 0.97 : 0.95) && inRange && ws.def.kind !== 'usable' && ws.def.kind !== 'throwable') fire = true;
       // bursts with pauses instead of laser-holding the trigger
-      if (ws.def.mode === 'auto') { this.sprayT += dt; if (this.sprayT > 0.6 + this.skill) { fire = false; if (this.sprayT > 0.95 + this.skill) this.sprayT = 0; } }
+      if (ws.def.mode === 'auto') { this.sprayT += dt; if (this.sprayT > 0.45 + this.skill) { fire = false; if (this.sprayT > 1.05 + this.skill * 0.5) this.sprayT = 0; } }
       if (ws.def.scope && d > 20) it.alt = true;
     }
     if (this.state === 'smoke' && ws && ws.def.kind === 'flame' && this.lastSeen && a.pos.distanceTo(this.lastSeen) < 14) fire = true;

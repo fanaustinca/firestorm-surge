@@ -22,7 +22,7 @@ export class Hud {
       <div id="toast"></div>
       <div id="center-msg"></div>
       <div id="useprog"><div class="lbl"></div><div class="bar"><i></i></div></div>
-      <div id="scope"><div class="ring"></div><div class="cross"></div></div>
+      <div id="scope"><div class="ring"></div><div class="cross"></div></div><div id="adsdot"></div>
       <div id="ov-flash"></div><div id="ov-thermal"></div><div id="ov-stun"></div><div id="ov-low"></div><div id="ov-dmg"></div>
       <div id="emo"><span>EMOTIONAL DAMAGE</span></div>
       <div id="killban"></div>
@@ -30,7 +30,7 @@ export class Hud {
       <div id="spectate"></div>
       <div id="hint">WASD move · Space jump · Mouse aim · LMB fire · RMB aim/ability · R reload · 1–5 slots · F thermal · Tab scores · B loadout</div>`;
     this.el = {};
-    for (const id of ['xhair', 'hitmark', 'dmgdir', 'sc-l', 'sc-r', 'timer', 'sclabel', 'radar', 'killfeed', 'hpbar', 'arbar', 'hpnum', 'status', 'wname', 'mag', 'res', 'reload', 'slots', 'toast', 'center-msg', 'useprog', 'scope', 'ov-flash', 'ov-thermal', 'ov-stun', 'ov-low', 'ov-dmg', 'emo', 'scoreboard', 'spectate', 'hint']) this.el[id] = document.getElementById(id);
+    for (const id of ['xhair', 'hitmark', 'dmgdir', 'sc-l', 'sc-r', 'timer', 'sclabel', 'radar', 'killfeed', 'hpbar', 'arbar', 'hpnum', 'status', 'wname', 'mag', 'res', 'reload', 'slots', 'toast', 'center-msg', 'useprog', 'scope', 'adsdot', 'ov-flash', 'ov-thermal', 'ov-stun', 'ov-low', 'ov-dmg', 'emo', 'scoreboard', 'spectate', 'hint']) this.el[id] = document.getElementById(id);
     this.rctx = this.el.radar.getContext('2d');
     this.hitT = 0; this.flashT = 0; this.flashMax = 1; this.emoT = 0; this.toastT = 0; this.dmgT = 0;
     setTimeout(() => this.el.hint.classList.add('fade'), 9000);
@@ -155,8 +155,11 @@ export class Hud {
       el.querySelector('.cnt').textContent = cnt; el.querySelector('.cd').style.height = `${Math.max(0, Math.min(1, cd)) * 100}%`;
     }
     // crosshair
-    const scoped = d?.scope && g.vm.adsK > 0.35;
+    const scoped = d?.scope && g.vm.adsK > 0.18;
     this.el.scope.classList.toggle('on', !!scoped);
+    // red-dot reticle for every non-sniper firearm while aiming down sights
+    const dotOn = a.alive && !scoped && g.vm.adsK > 0.5 && d && !['melee', 'throwable', 'usable', 'flame'].includes(d.kind);
+    this.el.adsdot.classList.toggle('on', !!dotOn);
     const melee = d && ['melee', 'throwable', 'usable'].includes(d.kind);
     const spread = d ? ((d.spread || 0.01) * (a.ads ? 0.3 : 1) + a.bloom) * 900 + Math.hypot(a.vel.x, a.vel.z) * 1.2 + (a.onGround ? 0 : 10) : 10;
     const gap = Math.min(60, 4 + spread);

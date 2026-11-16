@@ -492,7 +492,86 @@ function taser(m) {
   return g;
 }
 
+// ───────────────────────── new arrivals ─────────────────────────
+function stockAR(g, m, mat = m.polymer) {
+  P(g, rbox(0.034, 0.05, 0.2, 0.008), mat, 0, 0.03, 0.17);
+  P(g, rbox(0.04, 0.09, 0.014, 0.005), m.rubber, 0, 0.02, 0.275);
+}
+function volt_rail(m) {
+  const g = new THREE.Group();
+  P(g, rbox(0.05, 0.07, 0.3, 0.008), m.gunmetal, 0, 0.04, -0.06);                        // receiver
+  P(g, rbox(0.046, 0.04, 0.12, 0.006), m.polymer, 0, 0.0, -0.12);                         // battery pack
+  for (let i = 0; i < 4; i++) P(g, box(0.048, 0.006, 0.012), m.cyan, 0, 0.0, -0.08 - i * 0.025);
+  for (const sx of [-1, 1]) P(g, rbox(0.01, 0.03, 0.56, 0.003), m.darksteel, sx * 0.022, 0.05, -0.47);   // the two rails
+  for (let i = 0; i < 7; i++) P(g, torus(0.03, 0.006, 20), i % 2 ? m.cyan : m.brass, 0, 0.05, -0.26 - i * 0.07);
+  P(g, cylZ(0.006, 0.006, 0.54, 8), m.steel, 0, 0.05, -0.47);                              // slug guide
+  P(g, rbox(0.06, 0.012, 0.05, 0.004), m.gunmetal, 0, 0.05, -0.76);                         // muzzle bridge
+  pistolGrip(g, m, m.polymer, 0.03); triggerGroup(g, m, -0.01);
+  stockAR(g, m, m.gunmetal);
+  P(g, rbox(0.03, 0.014, 0.08, 0.004), m.polymer, 0, 0.082, 0.02);                        // rear sight
+  for (const sx of [-1, 1]) P(g, box(0.004, 0.018, 0.01), m.darksteel, sx * 0.008, 0.095, 0.03);
+  P(g, box(0.004, 0.02, 0.008), m.darksteel, 0, 0.074, -0.74);                             // front post
+  P(g, sphere(0.003, 8, 6), m.glowBlue, 0, 0.085, -0.74);
+  marker(g, 'muzzle', 0, 0.05, -0.8); marker(g, 'foregrip', 0, -0.0, -0.32); marker(g, 'sight', 0, 0.092, 0.1);
+  return g;
+}
+function arc_caster(m) {
+  const g = new THREE.Group();
+  P(g, rbox(0.055, 0.075, 0.26, 0.01), m.gunmetal, 0, 0.035, -0.05);
+  P(g, cylZ(0.016, 0.016, 0.34, 14), m.darksteel, 0, 0.04, -0.33);
+  for (let i = 0; i < 14; i++) P(g, torus(0.026, 0.005, 16), m.brass, 0, 0.04, -0.2 - i * 0.017);   // copper coil
+  for (let i = 0; i < 3; i++) { const a = (i / 3) * PI * 2 + PI / 2; P(g, new THREE.ConeGeometry(0.006, 0.07, 6).rotateX(-PI / 2), m.steel, Math.cos(a) * 0.028, 0.04 + Math.sin(a) * 0.028, -0.53, 0, 0, 0); }
+  P(g, torus(0.03, 0.004, 20), m.steel, 0, 0.04, -0.5);
+  P(g, sphere(0.022, 16, 12), m.glowPurple, 0, -0.02, -0.17);                             // capacitor orb in a cage
+  for (let i = 0; i < 4; i++) P(g, torus(0.026, 0.002, 16, PI), m.darksteel, 0, -0.02, -0.17, 0, (i / 4) * PI, 0);
+  const mag = new THREE.Group(); mag.name = 'mag'; mag.position.set(0, -0.01, -0.05); g.add(mag);
+  P(mag, cylX(0.04, 0.04, 0.05, 20), m.polymer, 0, -0.04, 0); P(mag, torus(0.04, 0.004, 20).rotateY(PI / 2), m.cyan, 0.026, -0.04, 0);
+  pistolGrip(g, m, m.polymer, 0.06); triggerGroup(g, m, 0.02);
+  stockAR(g, m);
+  P(g, rbox(0.02, 0.016, 0.05, 0.004), m.polymer, 0, 0.08, 0.02);
+  P(g, box(0.004, 0.022, 0.006), m.darksteel, 0, 0.07, -0.47);
+  marker(g, 'muzzle', 0, 0.04, -0.56); marker(g, 'foregrip', 0, -0.02, -0.28); marker(g, 'sight', 0, 0.09, 0.1);
+  return g;
+}
+function drum_breaker(m) {
+  const g = new THREE.Group();
+  P(g, rbox(0.06, 0.08, 0.3, 0.01), m.olive, 0, 0.035, -0.08);
+  P(g, cylZ(0.022, 0.022, 0.36, 18), m.gunmetal, 0, 0.05, -0.4);
+  P(g, rbox(0.062, 0.05, 0.22, 0.008), m.polymer, 0, 0.02, -0.33);                        // handguard
+  for (let i = 0; i < 5; i++) for (const sx of [-1, 1]) P(g, box(0.002, 0.02, 0.014), m.darksteel, sx * 0.032, 0.025, -0.25 - i * 0.035);
+  P(g, cylZ(0.03, 0.026, 0.06, 18), m.darksteel, 0, 0.05, -0.6);                           // choke
+  for (let i = 0; i < 6; i++) P(g, box(0.004, 0.02, 0.03), m.polymer, Math.cos(i) * 0.03, 0.05 + Math.sin(i) * 0.03, -0.6, 0, 0, i);
+  const mag = new THREE.Group(); mag.name = 'mag'; mag.position.set(0, -0.08, -0.12); g.add(mag);
+  P(mag, cylX(0.085, 0.085, 0.07, 28), m.gunmetal); P(mag, cylX(0.05, 0.05, 0.074, 20), m.darksteel);
+  for (let i = 0; i < 8; i++) { const a = (i / 8) * PI * 2; P(mag, cylX(0.012, 0.012, 0.076, 10), m.red, 0, Math.cos(a) * 0.07, Math.sin(a) * 0.07); }
+  P(g, cylY(0.016, 0.018, 0.08, 12), m.polymer, 0, -0.03, -0.36);                         // vertical foregrip
+  pistolGrip(g, m, m.polymer, 0.04); triggerGroup(g, m, -0.0);
+  stockAR(g, m, m.olive);
+  P(g, torus(0.014, 0.003, 16), m.darksteel, 0, 0.096, 0.03);                              // ghost ring
+  P(g, rbox(0.012, 0.012, 0.02, 0.003), m.darksteel, 0, 0.083, 0.03);
+  P(g, box(0.004, 0.026, 0.006), m.darksteel, 0, 0.085, -0.56); P(g, sphere(0.003, 8, 6), m.orange, 0, 0.098, -0.56);
+  marker(g, 'muzzle', 0, 0.05, -0.64); marker(g, 'foregrip', 0, -0.07, -0.36); marker(g, 'sight', 0, 0.096, 0.12);
+  return g;
+}
+function pocket_rocket(m) {
+  const g = new THREE.Group();
+  const tubeM = m.gunmetal.clone(); tubeM.side = THREE.DoubleSide;
+  P(g, cylZ(0.03, 0.03, 0.26, 20, true), tubeM, 0, 0.05, -0.1);
+  P(g, cylZ(0.034, 0.034, 0.02, 20), m.darksteel, 0, 0.05, -0.23);
+  P(g, cylZ(0.036, 0.03, 0.03, 20, true), tubeM, 0, 0.05, 0.04);
+  const round = new THREE.Group(); round.name = 'round'; round.position.set(0, 0.05, -0.22); g.add(round);
+  P(round, latheZ([[0, 0.06], [0.014, 0.04], [0.022, 0.0], [0.022, -0.03], [0, -0.03]], 16), m.olive);
+  P(g, rbox(0.03, 0.03, 0.14, 0.005), m.polymer, 0, 0.012, -0.04);
+  P(g, profile([[0.02, 0.01], [-0.035, 0.01], [-0.06, -0.1], [-0.05, -0.112], [-0.012, -0.112], [0.002, -0.095], [0.01, -0.03]], 0.03, 0.004), m.grip, 0, 0, 0.03);
+  triggerGroup(g, m, 0.0, 0.0);
+  P(g, rbox(0.012, 0.03, 0.03, 0.003), m.hazard, 0.032, 0.05, -0.05);
+  P(g, rbox(0.018, 0.02, 0.02, 0.003), m.polymer, 0, 0.09, 0.0); P(g, sphere(0.0022, 6, 6), m.reddot, 0, 0.095, -0.005);
+  marker(g, 'muzzle', 0, 0.05, -0.26); marker(g, 'sight', 0, 0.095, 0.18);
+  return g;
+}
+
 export const GUN_BUILDERS = {
   assault_rifle, ak47, dmr, rocket_launcher, burst_rifle, lmg, heavy_sniper, flamethrower, grenade_launcher, mortar,
   pistol, smg, crossbow, burst_pistol, revolver, sawed_off, tactical_shotgun, taser,
+  volt_rail, arc_caster, drum_breaker, pocket_rocket,
 };

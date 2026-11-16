@@ -16,11 +16,12 @@ const POSE = {
   pistol: [0.16, -0.16, -0.46, 0, 0.04, 0, 1], burst_pistol: [0.16, -0.16, -0.46, 0, 0.04, 0, 1], revolver: [0.16, -0.17, -0.46, 0, 0.04, 0, 1], taser: [0.17, -0.2, -0.48, 0, 0, 0, 1], crossbow: [0.17, -0.22, -0.52, 0, 0, 0, 1],
   katana: [0.3, -0.3, -0.52, -0.35, -1.45, 0.42, 0.95, 'ZXY'], knife: [0.22, -0.24, -0.42, -1.15, 0.25, 0.35, 1], karambit: [0.22, -0.24, -0.42, -0.6, 0.3, 0.3, 1],
   land_mine: [0.2, -0.26, -0.5, 0.55, 0.3, 0, 0.55],
+  volt_rail: [0.19, -0.22, -0.62, 0, 0, 0, 0.92], arc_caster: [0.19, -0.22, -0.58, 0, 0, 0, 0.95], drum_breaker: [0.2, -0.22, -0.58, 0, 0, 0, 0.92], pocket_rocket: [0.16, -0.17, -0.46, 0, 0.04, 0, 1],
   lmg_ultra: [0.25, -0.31, -0.72, 0, 0.06, 0, 0.78], rocket_launcher_ultra: [0.27, -0.37, -0.72, 0, 0.05, 0, 0.68],
   mortar_ultra: [0.29, -0.4, -0.82, 0.26, 0.06, 0, 0.6], flamethrower_ultra: [0.23, -0.27, -0.64, 0, 0.03, 0, 0.82], grenade_launcher_ultra: [0.22, -0.27, -0.6, 0, 0.03, 0, 0.88],
   bat: [0.32, -0.42, -0.5, -0.3, 0.2, 0.5, 1], sledgehammer: [0.34, -0.48, -0.55, -0.3, 0.25, 0.5, 0.95], scythe: [0.32, -0.9, -0.8, -0.12, 0.35, 0.3, 1],
 };
-const ONE_HAND = ['knife', 'karambit', 'katana', 'frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb', 'land_mine', 'shurikens', 'slippers', 'pistol', 'revolver', 'taser', 'adrenaline'];
+const ONE_HAND = ['knife', 'karambit', 'katana', 'frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb', 'land_mine', 'shurikens', 'slippers', 'pistol', 'revolver', 'taser', 'pocket_rocket', 'adrenaline'];
 const MELEE = ['knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer'];
 
 export class ViewModel {
@@ -64,9 +65,9 @@ export class ViewModel {
       this.muzzle = findMarker(this.item, 'muzzle'); this.sight = findMarker(this.item, 'sight'); this.fore = findMarker(this.item, 'foregrip');
       this.mag = this.item.getObjectByName('mag'); this.round = this.item.getObjectByName('round'); this.pump = this.item.getObjectByName('pump'); this.pilot = this.item.getObjectByName('pilot'); this.pilot2 = this.item.getObjectByName('pilot2'); this.spin = this.item.getObjectByName('spin'); this.wheel = this.item.getObjectByName('wheel'); this.wheelA = 0; this.spinV = 0; this.flickT = 0;
       this.seeThru = []; this.item.traverse((o) => { if (o.isMesh && o.material?.userData?.seeThru) this.seeThru.push(o); });
-      this.computeAdsLine();
       // every gun can aim down sights: synthesize a sight line over the barrel when the model has no optic
       if (!this.sight && this.muzzle && this.kind === 'gun') { this.sight = new THREE.Object3D(); this.sight.position.set(this.muzzle.position.x, this.muzzle.position.y + 0.035, 0.12); this.item.add(this.sight); }
+      this.computeAdsLine();
       this.magBase = this.mag ? this.mag.position.clone() : null; this.pumpBase = this.pump ? this.pump.position.clone() : null;
     }
     this.drawK = 1;
@@ -81,10 +82,20 @@ export class ViewModel {
     const inv = new THREE.Matrix4().copy(it.matrixWorld).invert(); const boxes = [];
     it.traverse((o) => { if (!o.isMesh || o.material?.userData?.seeThru || o.material?.emissiveIntensity > 1.5) return; boxes.push(new THREE.Box3().setFromObject(o).applyMatrix4(inv)); });
     it.position.copy(saved[0]); it.quaternion.copy(saved[1]); it.scale.copy(saved[2]); it.updateMatrixWorld(true);
-    const sp = this.sight.position; let y = sp.y;
-    for (let k = 0; k < 12; k++) {
+    // the ADS camera sits 0.12 m (view space) behind the sight point, so parts between the eye and the sight
+    // (drums, wheels, rear sight blocks) block the view too — not just those in front of the sight.
+    // ADS pushes the gun to at least 0.25 m in front of the eye (see update), so the camera can sit further back.
+    // Every part in front of the eye must sit ≥ ~3.5° below the line of sight, so bulky drums / wheels drop
+    // out of the picture instead of filling the lower half (the HUD red dot marks the aim point).
+    const sp = this.sight.position; const k0 = saved[2].x || 1; const camZ = Math.max(sp.z + 0.12 / k0, 0.25 / k0); let y = sp.y + 0.004;
+    const TAN = 0.06;
+    for (let k = 0; k < 24; k++) {
       let raised = false;
-      for (const bb of boxes) if (bb.min.z < sp.z - 0.01 && bb.min.x < sp.x + 0.008 && bb.max.x > sp.x - 0.008 && bb.min.y < y && bb.max.y > y + 0.004) { y = bb.max.y + 0.006; raised = true; }
+      for (const bb of boxes) {
+        if (bb.min.z > camZ - 0.03 || bb.min.x > sp.x + 0.012 || bb.max.x < sp.x - 0.012) continue;
+        const dist = Math.max(0.03, camZ - bb.max.z); const need = bb.max.y + Math.min(0.03, TAN * dist);
+        if (bb.min.y < y && need > y + 0.0005) { y = need + 0.001; raised = true; }
+      }
       if (!raised) break;
     }
     this.adsSight = new THREE.Vector3(sp.x, y, sp.z);
@@ -174,7 +185,7 @@ export class ViewModel {
     }
     this.updateHands(a);
     for (const o of this.seeThru || []) o.visible = this.adsK < 0.2;
-    this.root.visible = this.visible && !(def?.scope && this.adsK > 0.35);
+    this.root.visible = this.visible && !(def?.scope && this.adsK > 0.18);
     this.camera.fov = 64 - this.adsK * 12; this.camera.updateProjectionMatrix();
   }
 

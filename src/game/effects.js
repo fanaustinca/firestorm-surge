@@ -129,9 +129,18 @@ export class Effects {
     this.pools.push({ mesh, pool, acc: 0 });
   }
 
-  tether(a, b, time = 0.35) {
+  // jagged electric arc between two points
+  lightning(a, b, time = 0.14) {
+    const n = 6; let prev = a.clone(); const len = a.distanceTo(b);
+    for (let i = 1; i <= n; i++) {
+      const p = a.clone().lerp(b, i / n); if (i < n) p.add(new THREE.Vector3((Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5)).multiplyScalar(len * 0.12));
+      this.tether(prev, p, time, 0xc8a8ff, 0.016); prev = p;
+    }
+    this.spawn(b, new THREE.Vector3(), 0xd8c0ff, 0.5, 0.08);
+  }
+  tether(a, b, time = 0.35, color = 0x80e0ff, r = 0.008) {
     const len = a.distanceTo(b);
-    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 1, 4).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x80e0ff, transparent: true, blending: THREE.AdditiveBlending, toneMapped: false }));
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 1, 4).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color, transparent: true, blending: THREE.AdditiveBlending, toneMapped: false }));
     mesh.position.copy(a).add(b).multiplyScalar(0.5); mesh.lookAt(b); mesh.scale.set(1, 1, len);
     this.root.add(mesh); this.tethers.push({ mesh, t: time });
   }

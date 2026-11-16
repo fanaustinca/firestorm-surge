@@ -16,9 +16,9 @@ const UP = new THREE.Vector3(0, 1, 0);
 const SHOT_SOUND = {
   assault_rifle: 'rifle', ak47: 'rifle', burst_rifle: 'rifle', lmg: 'rifle', dmr: 'heavy', heavy_sniper: 'heavy',
   pistol: 'pistol', burst_pistol: 'pistol', revolver: 'heavy', smg: 'smg', sawed_off: 'shotgun', tactical_shotgun: 'shotgun',
-  rocket_launcher: 'launcher', grenade_launcher: 'launcher', mortar: 'mortar', crossbow: 'bow', shurikens: 'throw', slippers: 'throw',
+  rocket_launcher: 'launcher', grenade_launcher: 'launcher', mortar: 'mortar', volt_rail: 'heavy', arc_caster: 'smg', drum_breaker: 'shotgun', pocket_rocket: 'launcher', crossbow: 'bow', shurikens: 'throw', slippers: 'throw',
 };
-const TRACER_COLOR = { heavy_sniper: 0xff9a50, dmr: 0xffb070, lmg: 0xffd070, taser: 0x80e0ff };
+const TRACER_COLOR = { heavy_sniper: 0xff9a50, dmr: 0xffb070, lmg: 0xffd070, taser: 0x80e0ff, volt_rail: 0x40f0ff, arc_caster: 0xb48cff };
 
 const bid = (d) => d.base || d.id;
 
@@ -142,7 +142,8 @@ export class Combat {
       if (kind === 'gl_shell') vel.y += 3.0;
       if (kind === 'slipper') vel.y += 2.5;
       if (kind === 'slipper' || kind === 'shuriken') vel.multiplyScalar(1 + (a.mods.throw || 0) * 0.5);
-      this.spawnProj(a, d, kind, eye.clone().addScaledVector(aim, 0.4), vel, { visFrom: muzzle });
+      const pr = this.spawnProj(a, d, kind, eye.clone().addScaledVector(aim, 0.4), vel, { visFrom: muzzle });
+      if (d.projScale) pr.mesh.scale.setScalar(d.projScale);
       if (d.cooldown && d.kind === 'projectile') ws.recharge = d.cooldown;
     } else {
       const n = d.pellets || 1;
@@ -161,13 +162,31 @@ export class Combat {
   }
 
   addBullet(a, d, origin, dir, muzzle, remote = false) {
-    const b = { owner: a, def: d, pos: origin.clone(), dir: dir.clone(), speed: d.vel, range: d.range, traveled: 0, dmg: d.dmg, head: d.head, remote, visible: true, color: TRACER_COLOR[d.id] || 0xffd890, thin: false };
+    const b = { owner: a, def: d, pos: origin.clone(), dir: dir.clone(), speed: d.vel, range: d.range, traveled: 0, dmg: d.dmg, head: d.head, remote, visible: true, color: TRACER_COLOR[d.id] || TRACER_COLOR[bid(d)] || 0xffd890, thin: false };
     b.visOff = muzzle ? muzzle.clone().sub(origin) : V();
     b.vis = origin.clone().add(b.visOff);
     // every bullet gets a (cheap, line-segment) tracer — LMGs draw thinner/shorter ones
     if (d.thinTracers) b.thin = true;
     this.bullets.push(b);
     return b;
+  }
+
+  // Arc Caster: lightning jumps from the struck enemy to the nearest others (needs line of sight between them)
+  chainArc(b, first, pos) {
+    const c = b.def.chain; const hit = new Set([first]); let from = pos.clone();
+    for (let k = 0; k < c.n; k++) {
+      let best = null, bd = c.r;
+      for (const t of this.g.actors) {
+        if (!t.alive || hit.has(t) || t === b.owner || !this.g.hostile(b.owner, t)) continue;
+        const d = t.chest(_c).distanceTo(from); if (d < bd && this.world.lineOfSight(from, _c)) { bd = d; best = t; }
+      }
+      if (!best) break;
+      const to = best.chest(V()); hit.add(best);
+      this.g.effects.lightning(from, to);
+      this.g.onWorldEvent?.('arc', { a: from.toArray(), b: to.toArray() });
+      this.g.damage(best, b.dmg * c.f, { attacker: b.owner, weapon: b.def.id, pos: to, dir: b.dir });
+      from = to;
+    }
   }
 
   // ═════════════════ actor raycast ═════════════════
@@ -209,6 +228,7 @@ export class Combat {
         const p = b.pos.clone().addScaledVector(b.dir, ah.t);
         this.g.damage(ah.actor, ah.head ? b.head : b.dmg, { attacker: b.owner, weapon: b.def.id, head: ah.head, pos: p, dir: b.dir });
         this.g.effects.blood(p);
+        if (b.def.chain) this.chainArc(b, ah.actor, p);
         dead = true; b.pos.copy(p);
       } else if (wh) {
         b.pos.copy(wh.point);
@@ -360,7 +380,17 @@ export class Combat {
     if (p.ring) { p.ring.visible = false; }
     this.g.onWorldEvent?.('boom', { pos: pos.toArray(), r: sp.radius, id: p.id });
     if (p.remote) return;
-    const center = pos.clone().add(_a.set(0, 0.25, 0));
+    // Ultra mortar: shell bursts into bomblets that scatter and detonate around the impact
+    if (p.kind === 'mortar_shell' && d.cluster && !p.bomblet) {
+      const bd = { ...d, dmg: 150, head: 150, splash: { radius: 6.5, max: 130, min: 60 }, knockback: 8, cluster: 0 };
+      for (let k = 0; k < d.cluster; k++) {
+        const ang = (k / d.cluster) * Math.PI * 2 + Math.random() * 0.8;
+        const b = this.spawnProj(p.owner, bd, 'mortar_shell', pos.clone().add(_c.set(0, 0.6, 0)), V(Math.cos(ang) * 6.5, 6, Math.sin(ang) * 6.5));
+        b.bomblet = true; b.mesh.scale.setScalar(0.6);
+      }
+    }
+    // mortar shells burst high enough that low cover / terrain bumps don't swallow the blast
+    const center = pos.clone().add(_a.set(0, p.kind === 'mortar_shell' ? 0.9 : 0.25, 0));
     for (const t of this.g.actors) {
       if (!t.alive || t === direct) continue;
       if (t !== p.owner && !this.g.hostile(p.owner, t)) continue;
@@ -571,16 +601,22 @@ export class Combat {
   }
 
   // ═════════════════ mortar ═════════════════
-  fireMortar(a, ws) {
-    const d = ws.def; const eye = a.eye(V()), dir = a.aimDir(V());
+  // where a mortar fired right now would land (also drives the shooter-only landing marker)
+  mortarTarget(a, d, out = V()) {
+    const eye = a.eye(_a), dir = a.aimDir(_b);
     const hit = this.world.raycast(eye, dir, d.range, (b) => !b.seeThrough);
-    let target = hit ? hit.point.clone() : eye.clone().addScaledVector(dir, d.range);
-    const flat = V().set(target.x - a.pos.x, 0, target.z - a.pos.z); let dist = flat.length();
-    if (dist < d.minRange) { const f = a.forward(V()); target = a.pos.clone().addScaledVector(dist > 0.5 ? flat.normalize() : f, d.minRange); dist = d.minRange; }
-    if (dist > d.range) { target = a.pos.clone().addScaledVector(flat.normalize(), d.range); dist = d.range; }
-    target.y = this.world.groundHeightAt(target.x, target.z, (hit ? hit.point.y : 0) + 0.5);
-    const T = 1.7 + dist / 35; const g = 20;
-    const start = eye.clone().add(_a.set(0, 0.3, 0));
+    const target = out.copy(hit ? hit.point : _c.copy(eye).addScaledVector(dir, d.range));
+    const fx = target.x - a.pos.x, fz = target.z - a.pos.z; let dist = Math.hypot(fx, fz);
+    if (dist < d.minRange) { const f = a.forward(_c); const nx = dist > 0.5 ? fx / dist : f.x, nz = dist > 0.5 ? fz / dist : f.z; target.set(a.pos.x + nx * d.minRange, 0, a.pos.z + nz * d.minRange); dist = d.minRange; }
+    if (dist > d.range) { target.set(a.pos.x + fx / dist * d.range, 0, a.pos.z + fz / dist * d.range); dist = d.range; }
+    target.y = this.world.groundHeightAt(target.x, target.z, (hit ? hit.point.y : a.pos.y) + 0.5);
+    return target;
+  }
+  fireMortar(a, ws) {
+    const d = ws.def; const dir = a.aimDir(V());
+    const target = this.mortarTarget(a, d, V()); const dist = Math.hypot(target.x - a.pos.x, target.z - a.pos.z);
+    const T = 0.85 + dist / 42; const g = 20;
+    const start = a.eye(V()).add(_a.set(0, 0.3, 0));
     const vel = V().set((target.x - start.x) / T, (target.y - start.y + 0.5 * g * T * T) / T, (target.z - start.z) / T);
     ws.mag--; ws.cooldown = d.interval;
     const p = this.spawnProj(a, d, 'mortar_shell', start, vel, { visFrom: this.g.muzzleWorld(a, V()) });
