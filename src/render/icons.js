@@ -49,7 +49,7 @@ export function mapThumb(id) {
   const p = queue = queue.then(() => new Promise((res) => setTimeout(async () => {
     try {
       const { buildMap } = await import('../world/maps.js');
-      if (!mr) { const c = document.createElement('canvas'); c.width = 480; c.height = 270; mr = new THREE.WebGLRenderer({ canvas: c, antialias: true, preserveDrawingBuffer: true }); mr.setSize(480, 270, false); mr.toneMapping = THREE.ACESFilmicToneMapping; mr.outputColorSpace = THREE.SRGBColorSpace; mr.shadowMap.enabled = true; }
+      if (!mr) { const c = document.createElement('canvas'); c.width = 400; c.height = 225; mr = new THREE.WebGLRenderer({ canvas: c, antialias: true, preserveDrawingBuffer: true }); mr.setSize(400, 225, false); mr.toneMapping = THREE.ACESFilmicToneMapping; mr.outputColorSpace = THREE.SRGBColorSpace; mr.shadowMap.enabled = false; }
       const map = buildMap(id, { nav: false }); const e = map.env;
       const sc = new THREE.Scene(); sc.add(map.group); sc.background = new THREE.Color(e.indoor ? e.fog[0] : ({ night: 0x101830, snow: 0xc8dcf0, desert: 0xa8c8e8, dusk: 0xd8a888, jungle: 0x98b890 }[e.sky] ?? 0x8ab8e0));
       sc.fog = new THREE.Fog(e.fog[0], e.fog[1] * 1.4, e.fog[2] * 1.4);

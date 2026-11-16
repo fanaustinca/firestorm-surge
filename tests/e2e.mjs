@@ -324,13 +324,14 @@ try {
 
   // ───────── room + map vote (offline room, bots vote) ─────────
   const lob = await page.evaluate(async () => {
-    const g = DEV.game; window.__voteSecs = 14; g.state = 'menu'; g.clearActors(); g.ui.sel.online = false; g.ui.sel.mode = '2v2'; g.ui.showMenu();
+    const g = DEV.game; window.__voteSecs = 40; g.state = 'menu'; g.clearActors(); g.ui.sel.online = false; g.ui.sel.mode = '2v2'; g.ui.showMenu();
     document.querySelector('#play').click();
     await new Promise((r) => setTimeout(r, 900));
     const cards = [...document.querySelectorAll('[data-vote]')].map((b) => b.dataset.vote); const players = document.querySelectorAll('#lb-people li').length;
     document.querySelector('[data-vote]').click(); const voted = cards[0];
     let thumbs = 0; const t0 = performance.now();
-    while (performance.now() - t0 < 11000) { await new Promise((r) => setTimeout(r, 300)); thumbs = [...document.querySelectorAll('img[data-thumb]')].filter((i) => i.src.startsWith('data:image')).length; if (thumbs >= 4) break; }
+    while (performance.now() - t0 < 36000) { await new Promise((r) => setTimeout(r, 300)); thumbs = [...document.querySelectorAll('img[data-thumb]')].filter((i) => i.src.startsWith('data:image')).length; if (thumbs >= 2) break; }
+    window.DEV.game.ui.lobby.state.endsAt = performance.now() + 1500;   // got what we needed — end the vote now
     return { cards, players, voted, thumbs };
   });
   await shot('lobby-vote');
