@@ -88,6 +88,42 @@ try {
   check('Aiming down sights: nothing covers the aim point + red-dot reticle', adsC.blocked.length === 0 && adsC.dot, JSON.stringify(adsC));
   const mtn = await page.evaluate(() => Object.fromEntries(DEV.maps().map((id) => { DEV.loadMap(id, 'practice'); let inside = 0; DEV.game.map.group.traverse((o) => { if (o.isMesh && o.material.vertexColors && o.geometry.attributes.color) { const p = o.geometry.attributes.position; for (let i = 0; i < p.count; i++) if (Math.abs(p.getX(i)) < 31 && Math.abs(p.getZ(i)) < 31) inside++; } }); return [id, inside]; })));
   check('Mountains never intrude into the arena (no walking into them)', Object.values(mtn).every((n) => n === 0), JSON.stringify(mtn));
+  // ── v2.3: tunnels, lab island, architecture, colliders ──
+  const tun = await page.evaluate(() => {
+    const V = DEV.THREE.Vector3; const { buildMap, mapIssues, findPath } = DEV.lib; const out = {};
+    for (const id of DEV.maps()) {
+      const m = buildMap(id); const w = m.world; const r = { issues: mapIssues(m) };
+      if (w.pits) {
+        r.floor = w.groundY(0.5, 0.5); r.surface = w.groundHeightAt(0.5, 0.5, 1);
+        const red = findPath(m.nav, m.spawns.red[0], new V(0.5, -3, 0.5)), blue = findPath(m.nav, m.spawns.blue[0], new V(0.5, -3, 0.5));
+        r.paths = !!(red && blue) && [...red, ...blue].some((p) => p.y < -2);
+        // a shot fired along the tunnel travels until a wall/pillar, not into "terrain" above
+        const sx = Math.min(...w.pits.open.filter(([, z]) => z > 0).map(([x]) => x)) + 1.5;   // red-side corridor centre line
+        const hit = w.raycast(new V(sx, -1.6, 5.5), new V(0, 0, 1), 30); r.shot = hit ? +hit.t.toFixed(1) : 99;
+        const down = w.raycast(new V(sx, 0.5, 10.5), new V(0, -1, 0), 10); r.roofHit = down ? +down.point.y.toFixed(2) : null;
+        r.openCells = w.pits.open.length;
+      }
+      out[id] = r;
+    }
+    return out;
+  });
+  const tunMaps = Object.entries(tun).filter(([, r]) => r.openCells);
+  check('Underground tunnels on 4 maps: tunnel floor at -3, surface slab walkable, paths from both spawns', tunMaps.length === 4 && tunMaps.every(([, r]) => r.floor === -3 && r.surface === 0 && r.paths && r.roofHit === 0 && r.shot > 6), JSON.stringify(Object.fromEntries(tunMaps.map(([k, r]) => [k, { paths: r.paths, shot: r.shot, roof: r.roofHit }]))));
+  check('No props/spawns inside stairwells', Object.values(tun).every((r) => r.issues.length === 0), JSON.stringify(Object.fromEntries(Object.entries(tun).filter(([, r]) => r.issues.length).map(([k, r]) => [k, r.issues.slice(0, 3)]))));
+  const lab = await page.evaluate(() => { const m = DEV.lib.buildMap('underground_lab'); const nav = m.nav; let l1 = 0, l2 = 0; for (let n = 0; n < nav.nodeH.length; n++) { const c = nav.nodeCell[n], x = ((c / nav.N) | 0) - nav.half + 0.5, z = (c % nav.N) - nav.half + 0.5; if (Math.abs(x) < 9 && Math.abs(z) < 5) { if (Math.abs(nav.nodeH[n] - 3) < 0.1) l1++; if (Math.abs(nav.nodeH[n] - 6) < 0.1) l2++; } } const p = DEV.lib.poisOf(nav, [m.spawns.red[0]]); const reach = (y) => p.high.some((n) => { const c = nav.nodeCell[n], x = ((c / nav.N) | 0) - nav.half + 0.5; return Math.abs(x) < 3 && Math.abs(nav.nodeH[n] - y) < 0.1; }); return { l1, l2, reachL1: reach(3), reachL2: reach(6) }; });
+  check('Underground Lab: central 2-level island reachable from spawn', lab.l1 > 80 && lab.l2 > 20 && lab.reachL1 && lab.reachL2, JSON.stringify(lab));
+  const arch = await page.evaluate(() => { DEV.loadMap('cargo_yard', 'practice'); const w = DEV.game.map.world; const T = DEV.THREE; let pil = 0; for (const b of w.boxes) if (Math.abs((b.max[0] - b.min[0]) - 0.62) < 0.01 && Math.abs((b.max[2] - b.min[2]) - 0.62) < 0.01 && b.max[1] > 9) pil++;
+    // tundra: pines (foliage, not just the trunk) and boulders stop a ray where the visible mesh is
+    DEV.loadMap('frostbite', 'practice'); const w2 = DEV.game.map.world; const res = {};
+    const gap = (x, y, z) => { const h = w2.raycast(new T.Vector3(x + 5, y, z), new T.Vector3(-1, 0, 0), 6); return h ? +(5 - h.t).toFixed(2) : 0; };
+    res.pineFoliage = gap(-27, 8 * 0.42, 6); res.boulder = gap(-9, 0.5, 6);
+    void T; return { pilasters: pil, ...res }; });
+  check('Buildings have pilasters/trim; tundra pines + boulders are solid', arch.pilasters >= 8 && arch.pineFoliage > 1.2 && arch.boulder > 0.95, JSON.stringify(arch));
+  const botsMove = await page.evaluate(() => {
+    DEV.loadMap('cargo_yard', 'red_vs_blue'); const g = DEV.game; DEV.clearBots(); g.god = true; DEV.teleport(0, 30, 0); g.noclip = true; const V = DEV.THREE.Vector3;
+    const sp = g.map.spawns.red[0]; const go = (goal) => { const id = DEV.spawnBot(g.player.team, 'assault_rifle', { at: [sp.x, sp.y, sp.z], tier: 'normal' }); const b = g.actors.find((a) => a.id === id); const br = g.brains.get(b); br.pickRoam = () => goal.clone(); br.goal = goal.clone(); let t = 0; for (; t < 45; t++) { DEV.advance(1); if (Math.hypot(b.pos.x - goal.x, b.pos.z - goal.z) < 1.5 && Math.abs(b.pos.y - goal.y) < 0.6) break; } const ok = t < 45; let moved = 0; const p0 = b.pos.clone(); DEV.advance(2); moved = b.pos.distanceTo(p0); g.removeActor(b); return { ok, t, held: moved < 0.3 }; };
+    const r = { tunnel: go(new V(0.5, -3, 0.5)), roof: go(new V(-17.5, 9, 3.5)) }; g.noclip = false; return r; });
+  check('Bots walk into the tunnels and up onto roofs, then hold the spot', botsMove.tunnel.ok && botsMove.roof.ok && botsMove.tunnel.held && botsMove.roof.held, JSON.stringify(botsMove));
   // bots must be able to path to and reach upper floors (stairs, ladders, bridges)
   const reach = await page.evaluate(() => {
     const out = []; const g = DEV.game;

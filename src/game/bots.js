@@ -93,6 +93,17 @@ export function navClear(nav, a, b) {
   }
   return Math.abs(hh - nav.nodeH[b]) <= 0.55;
 }
+// roam targets: elevated surfaces (floors, roofs, bridges, decks) and tunnel floors that are actually
+// reachable on foot / by ladder from the spawns (prop tops and sealed roofs are excluded).
+export function poisOf(nav, starts = []) {
+  const seen = new Uint8Array(nav.nodeH.length); const q = [];
+  for (const p of starts) { const n = nodeAt(nav, p); if (n != null && !seen[n]) { seen[n] = 1; q.push(n); } }
+  const nb = [];
+  for (let h = 0; h < q.length; h++) for (const e of neighbors(nav, q[h], nb)) if (!seen[e.to]) { seen[e.to] = 1; q.push(e.to); }
+  const any = q.length > 0; const high = [], tunnel = [];
+  for (let n = 0; n < nav.nodeH.length; n++) { if (any && !seen[n]) continue; const h = nav.nodeH[n]; if (h >= 2.5) high.push(n); else if (h < -1.5) tunnel.push(n); }
+  return { high, tunnel };
+}
 export function randomNode(nav, rnd = Math.random) { const n = (rnd() * nav.nodeH.length) | 0; const c = nav.nodeCell[n]; return new THREE.Vector3(((c / nav.N) | 0) - nav.half + 0.5, nav.nodeH[n], (c % nav.N) - nav.half + 0.5); }
 
 // ───── bot loadouts ─────
@@ -129,9 +140,10 @@ export const botName = (i) => BOT_NAMES[i % BOT_NAMES.length] + (i >= BOT_NAMES.
 // normal:  inaccurate, stands still to snipe, otherwise walks / hops while shooting (no zig-zag dodging).
 // veteran: 0–1 per match. Zig-zags + jumps while firing, swaps weapons, moves while scoped. Good, not an aimbot.
 export const TIERS = {
-  casual: { skill: 0.12, react: [0.95, 0.6], err: 2.0, settleMin: 0.75, settleRate: 0.25, turn: 1.9, head: 0, lag: 0.32, swap: false, throws: false, jump: false, dodge: 0.25, strafe: 0, flip: [9, 9] },
-  normal: { skill: 0.35, react: [0.6, 0.4], err: 1.45, settleMin: 0.55, settleRate: 0.35, turn: 2.8, head: 0.04, lag: 0.2, swap: true, throws: true, jump: true, dodge: 0.55, strafe: 0.45, flip: [1.4, 1.6], hop: [3.5, 4] },
-  veteran: { skill: 0.65, react: [0.36, 0.22], err: 1.0, settleMin: 0.38, settleRate: 0.45, turn: 4.0, head: 0.12, lag: 0.1, swap: true, throws: true, jump: true, dodge: 0.85, strafe: 1, flip: [0.28, 0.4], hop: [1.4, 1.8], zigzag: true, scopeMove: true },
+  // hold: chance a strafe window is spent standing still; linger: seconds spent holding an angle at each roam spot
+  casual: { skill: 0.12, react: [0.95, 0.6], err: 2.0, settleMin: 0.75, settleRate: 0.25, turn: 1.9, head: 0, lag: 0.32, swap: false, throws: false, jump: false, dodge: 0.25, strafe: 0, flip: [9, 9], hold: 1, linger: [5, 7] },
+  normal: { skill: 0.35, react: [0.6, 0.4], err: 1.45, settleMin: 0.55, settleRate: 0.35, turn: 2.8, head: 0.04, lag: 0.2, swap: true, throws: true, jump: true, dodge: 0.55, strafe: 0.4, flip: [1.2, 1.4], hop: [6, 6], hold: 0.6, linger: [3, 5] },
+  veteran: { skill: 0.65, react: [0.36, 0.22], err: 1.0, settleMin: 0.38, settleRate: 0.45, turn: 4.0, head: 0.12, lag: 0.1, swap: true, throws: true, jump: true, dodge: 0.85, strafe: 1, flip: [0.28, 0.4], hop: [1.8, 2], zigzag: true, scopeMove: true, hold: 0.15, linger: [1.5, 2.5] },
 };
 function hashStr(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
 // Deterministic from the match id so every peer agrees: about half of matches get exactly one veteran,
@@ -246,12 +258,18 @@ export class BotBrain {
       if (!this.coverPos || g.time > this.coverT) { this.coverPos = this.findCover(tgt); this.coverT = g.time + 3; }
       this.goal = this.coverPos;
     } else if (state === 'hunt') this.goal = this.lastSeen;
+    if (state !== 'roam') { this.holdUntil = 0; this.lookDir = null; }
     else if (state === 'smoke') {
       const c = g.combat.clouds.find((cl) => cl.pos.distanceTo(this.lastSeen) < cl.radius);
       if (c) { const away = V().subVectors(a.pos, c.pos).setY(0); const side = V(-away.z, 0, away.x).normalize(); this.goal = c.pos.clone().addScaledVector(away.normalize(), c.radius + 3).addScaledVector(side, 6 * this.strafe); }
     } else if (state === 'blind') this.goal = null;
     else if (state === 'roam') {
-      if (!this.goal || a.pos.distanceTo(this.goal) < 2 || Math.random() < 0.006) this.goal = this.pickRoam();
+      // walk to a spot, then hold it for a while watching an angle (no endless wandering)
+      if (this.goal && Math.hypot(a.pos.x - this.goal.x, a.pos.z - this.goal.z) < 1.4 && Math.abs(a.pos.y - this.goal.y) < 0.6) {
+        if (!this.holdUntil) { this.holdUntil = g.time + this.T.linger[0] + Math.random() * this.T.linger[1]; this.lookT = 0; }
+        if (g.time > this.lookT) { this.lookT = g.time + 1.8 + Math.random() * 2; const c = V(-a.pos.x + (Math.random() - 0.5) * 30, 0, -a.pos.z + (Math.random() - 0.5) * 30); if (c.lengthSq() < 4) c.set(Math.random() - 0.5, 0, Math.random() - 0.5); this.lookDir = c.normalize(); }
+        if (g.time > this.holdUntil) { this.goal = this.pickRoam(); this.holdUntil = 0; this.lookDir = null; }
+      } else if (!this.goal) { this.goal = this.pickRoam(); this.holdUntil = 0; this.lookDir = null; }
       if (this.lastSeen && g.time - this.lastSeenT > 5) this.lastSeen = null;
     }
     // ── path
@@ -261,13 +279,19 @@ export class BotBrain {
       if (!this.path && state === 'roam') this.goal = null;
     }
     if (!this.goal) this.path = null;
+    else if (this.path && !this.path.length && (Math.hypot(a.pos.x - this.goal.x, a.pos.z - this.goal.z) > 1.4 || Math.abs(a.pos.y - this.goal.y) > 0.6)) this.pathT = Math.min(this.pathT, 0.3);   // stopped short: re-plan soon
     // aim error: large at first sight, tightens with time on target
     // a wandering aim offset (not fresh noise each tick), so shots drift around the target like a human's
     const settle = Math.max(this.T.settleMin, 1.4 - this.seenFor * this.T.settleRate);
     const err = this.T.err * settle;
     this.aimErrT.set((Math.random() - 0.5) * err, (Math.random() - 0.5) * err * 0.75, (Math.random() - 0.5) * err);
     this.aimErr.lerp(this.aimErrT, 0.45);
-    this.strafeT -= dt; if (this.strafeT <= 0) { this.strafe = this.T.zigzag ? -this.strafe || 1 : (Math.random() < 0.5 ? -1 : 1); this.strafeT = this.T.flip[0] + Math.random() * this.T.flip[1]; }
+    this.strafeT -= dt;
+    if (this.strafeT <= 0) {
+      if (Math.random() < this.T.hold) this.strafe = 0;                                  // plant the feet for this window
+      else { this.strafe = this.T.zigzag ? -(this.lastStrafe || -1) : (Math.random() < 0.5 ? -1 : 1); this.lastStrafe = this.strafe; }
+      this.strafeT = this.T.flip[0] + Math.random() * this.T.flip[1];
+    }
   }
 
   findCover(tgt) {
@@ -285,9 +309,13 @@ export class BotBrain {
     return best || this.pickRoam();
   }
   pickRoam() {
-    // mix of spawn-area roaming and wandering anywhere on the multi-level nav (upstairs, roofs, bridges)
-    if (Math.random() < 0.6) return randomNode(this.g.map.nav);
-    const sp = this.g.map.spawns.ffa; const p = sp[(Math.random() * sp.length) | 0];
+    // favour vantage points: upper floors / roofs / bridges, and the underground tunnels when the map has them
+    const nav = this.g.map.nav; const sp = this.g.map.spawns; const P = nav.pois || (nav.pois = poisOf(nav, [sp.red[0], sp.blue[0], sp.ffa[0]].filter(Boolean))); const r = Math.random();
+    const pick = (list) => { const n = list[(Math.random() * list.length) | 0]; const c = nav.nodeCell[n]; return new THREE.Vector3(((c / nav.N) | 0) - nav.half + 0.5, nav.nodeH[n], (c % nav.N) - nav.half + 0.5); };
+    if (r < 0.35 && P.high.length) return pick(P.high);
+    if (r < 0.55 && P.tunnel.length) return pick(P.tunnel);
+    if (r < 0.8) return randomNode(nav);
+    const ff = sp.ffa; const p = ff[(Math.random() * ff.length) | 0];
     return p.clone().add(V((Math.random() - 0.5) * 6, 0, (Math.random() - 0.5) * 6));
   }
 
@@ -305,7 +333,7 @@ export class BotBrain {
     else if (this.dodge) wish.copy(this.dodge);
     else if (this.path && this.path.length) {
       let wp = this.path[0];
-      const reached = (w) => Math.hypot(w.x - a.pos.x, w.z - a.pos.z) < (w.ladder ? 0.45 : 0.7) && Math.abs(w.y - a.pos.y) < (w.ladder ? 0.4 : 1.2);
+      const reached = (w) => Math.hypot(w.x - a.pos.x, w.z - a.pos.z) < (w.ladder ? 0.45 : 0.7) && Math.abs(w.y - a.pos.y) < (w.ladder ? 0.4 : this.path.length === 1 ? 0.45 : 1.2);
       while (wp && reached(wp)) { this.path.shift(); wp = this.path[0]; this.wpT = 0; }
       this.wpT = (this.wpT || 0) + dt;
       if (wp && this.wpT > (wp.ladder ? 6 : 4)) { this.wpT = 0; this.fails = (this.fails || 0) + 1; this.path = null; this.pathT = 0; if (this.fails > 2) { this.goal = null; this.fails = 0; } wp = null; }
@@ -336,7 +364,7 @@ export class BotBrain {
         wish.addScaledVector(side, this.strafe * T.strafe * (this.goal ? 0.5 : 1));
         if (wish.lengthSq() > 0) wish.normalize();
         if (T.zigzag) wish.multiplyScalar(1); else wish.multiplyScalar(0.7);                      // normal walks, veteran sprints the zig-zag
-        if (T.jump && T.hop && a.onGround) { this.hopT -= dt; if (this.hopT <= 0) { it.jumpPressed = true; this.hopT = T.hop[0] + Math.random() * T.hop[1]; } }
+        if (T.jump && T.hop && a.onGround && wish.lengthSq() > 0.05) { this.hopT -= dt; if (this.hopT <= 0) { it.jumpPressed = true; this.hopT = T.hop[0] + Math.random() * T.hop[1]; } }
       }
     }
     // stuck → hop + repath
@@ -356,10 +384,12 @@ export class BotBrain {
     } else if (this.placingMine && this.throwing > 0) aimPt = a.eye(V()).add(a.forward(V()).multiplyScalar(2)).setY(a.pos.y);
     else if (this.lastSeen && (this.state === 'hunt' || this.state === 'smoke')) aimPt = this.lastSeen.clone().setY(this.lastSeen.y + 1.3);
     else if (wish.lengthSq() > 0) aimPt = a.eye(V()).addScaledVector(wish, 10);
+    let lazy = false;
+    if (!aimPt && this.lookDir) { aimPt = a.eye(V()).addScaledVector(this.lookDir, 10); lazy = true; }
     if (aimPt && this.state !== 'blind') {
       const d = V().subVectors(aimPt, a.eye(V()));
       const yaw = Math.atan2(-d.x, -d.z), pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
-      const turn = T.turn * dt;
+      const turn = T.turn * dt * (lazy ? 0.3 : 1);                                               // idle glances are slow
       let dy = yaw - a.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
       a.yaw += THREE.MathUtils.clamp(dy, -turn, turn); a.pitch += THREE.MathUtils.clamp(pitch - a.pitch, -turn, turn);
     }

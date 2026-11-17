@@ -6,7 +6,12 @@ const CELL = 4;
 
 export class CollisionWorld {
   constructor() { this.boxes = []; this.grid = new Map(); this.nextId = 1; this.ceiling = Infinity; this.bounds = 30; this.terrain = null; }
-  groundY(x, z) { return this.terrain ? this.terrain.at(x, z) : 0; }
+  // ground height; inside an underground tunnel's footprint the ground is the tunnel floor
+  groundY(x, z) {
+    if (this.pits) { const t = this.pits.cells.get(Math.floor(x) * 1000 + Math.floor(z)); if (t) return this.pits.floor; }
+    return this.terrain ? this.terrain.at(x, z) : 0;
+  }
+  pitAt(x, z) { return this.pits ? this.pits.cells.get(Math.floor(x) * 1000 + Math.floor(z)) || null : null; }
 
   add(min, max, opts = {}) {
     const b = { min: [...min], max: [...max], id: this.nextId++, ...opts };
@@ -58,14 +63,15 @@ export class CollisionWorld {
     }
     // ground: rolling terrain (marched + bisected) or the flat y=0 plane
     const T = this.terrain;
-    if (T && T.maxH > 0.01) {
-      const lim = best ? best.t : maxT; const yEnd = o.y + d.y * lim;
-      if (Math.min(o.y, yEnd) <= T.maxH + 0.01) {
-        const step = 0.5; let prev = 0;
+    if ((T && T.maxH > 0.01) || this.pits) {
+      const lim = best ? best.t : maxT; const yEnd = o.y + d.y * lim; const maxH = T ? T.maxH : 0;
+      if (Math.min(o.y, yEnd) <= maxH + 0.01) {
+        const step = 0.5; let prev = 0; const H = (x, z) => this.groundY(x, z);
         for (let t = Math.min(step, lim); ; t = Math.min(t + step, lim)) {
-          if (o.y + d.y * t - T.at(o.x + d.x * t, o.z + d.z * t) < 0) {
-            let a = prev, b = t; for (let k = 0; k < 7; k++) { const m = (a + b) / 2; if (o.y + d.y * m - T.at(o.x + d.x * m, o.z + d.z * m) < 0) b = m; else a = m; }
-            best = { t: b, normal: T.normal(o.x + d.x * b, o.z + d.z * b), box: { kind: 'ground' } }; break;
+          if (o.y + d.y * t - H(o.x + d.x * t, o.z + d.z * t) < 0) {
+            let a = prev, b = t; for (let k = 0; k < 7; k++) { const m = (a + b) / 2; if (o.y + d.y * m - H(o.x + d.x * m, o.z + d.z * m) < 0) b = m; else a = m; }
+            const px = o.x + d.x * b, pz = o.z + d.z * b;
+            best = { t: b, normal: T && !this.pitAt(px, pz) ? T.normal(px, pz) : new THREE.Vector3(0, 1, 0), box: { kind: 'ground' } }; break;
           }
           prev = t; if (t >= lim) break;
         }

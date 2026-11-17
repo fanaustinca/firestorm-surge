@@ -156,7 +156,14 @@ class Builder {
   tower(cx, cz, w, d, o) {
     const floors = o.floors ?? 3, th = 0.3, H = floors * FLOOR;
     const x0 = cx - w / 2, x1 = cx + w / 2, z0 = cz - d / 2, z1 = cz + d / 2;
-    const sides = { n: [x0, z0, x1, z0, w], s: [x0, z1, x1, z1, w], w: [x0, z0, x0, z1, d], e: [x1, z0, x1, z1, d] };
+    const sides = { n: [x0, z0, x1, z0, w], s: [x0, z1, x1, z1, w], w: [x0, z0, x0, z1, d], e: [x1, z0, x1, z1, d] }; const wins = {};
+    // projecting bays (full-height bump-outs) on up to two quiet sides, so footprints aren't plain rectangles
+    const bays = {}; let nb = 0;
+    if (o.bays !== false) for (const side of ['s', 'e', 'n', 'w']) {
+      if (nb >= (o.bays ?? 2)) break; const L = sides[side][4]; const c = L / 2, bw = Math.min(3.6, L * 0.32);
+      const busy = (o.doors || []).includes(side) || (o.open || []).includes(side) || [...(o.ladders || []), ...(o.vines || []), ...(o.doorsUp || [])].some(([sd, a]) => sd === side && Math.abs(a - c) < bw / 2 + 1.6) || (o.balconies || []).some(([sd, , a, bw2 = 4]) => sd === side && Math.abs(a - c) < (bw + bw2) / 2 + 0.4);
+      if (busy) continue; bays[side] = [c - bw / 2, c + bw / 2]; nb++;
+    }
     for (const [side, [ax, az, bx, bz, L]] of Object.entries(sides)) {
       const holes = [];
       const door = (o.doors || []).includes(side), open = (o.open || []).includes(side);
@@ -168,14 +175,16 @@ class Builder {
         const ww = o.winW ?? 1.8, wg = o.winGap ?? 3.2, wy0 = o.winY0 ?? 1.0, wy1 = o.winY1 ?? 2.3;
         for (let k = 0; k < floors; k++) for (let t = 1.2; t + ww <= L - 1.0; t += wg) {
           if (k === 0 && door && t < L / 2 + 1.3 && t + ww > L / 2 - 1.3) continue;
+          if (bays[side] && t + ww > bays[side][0] - 0.3 && t < bays[side][1] + 0.3) continue;
           if (o.ruined && ((t * 7 + k * 3 + L) % 5) < 1.2) { holes.push({ a: t - 0.3, b: t + ww + 0.3, y0: k * FLOOR + 0.6, y1: k * FLOOR + 2.7 }); continue; }
-          holes.push({ a: t, b: t + ww, y0: k * FLOOR + wy0, y1: k * FLOOR + wy1 });
+          holes.push({ a: t, b: t + ww, y0: k * FLOOR + wy0, y1: k * FLOOR + wy1, win: true });
         }
       }
       for (const [s2, a] of o.ladders || []) if (s2 === side) holes.push({ a: a - 0.6, b: a + 0.6, y0: H, y1: H + 1.2 });
       for (const [s2, a, lvl] of o.doorsUp || []) if (s2 === side) holes.push({ a: a - 1.0, b: a + 1.0, y0: lvl * FLOOR, y1: lvl * FLOOR + 2.5 });
       for (const [s2, lvl, a, bw] of o.balconies || []) if (s2 === side) holes.push({ a: a - 1.0, b: a + 1.0, y0: lvl * FLOOR, y1: lvl * FLOOR + 2.5 });
       this.wall(ax, az, bx, bz, 0, H + 1.0, th, o.wallMat, holes, { ts: 3 });
+      wins[side] = holes.filter((h) => h.win);
       // exterior ladders / vines run to the roof
       for (const [s2, a] of o.ladders || []) if (s2 === side) {
         const p = side === 'n' || side === 's' ? [ax + a, az + (side === 'n' ? -0.25 : 0.25)] : [ax + (side === 'w' ? -0.25 : 0.25), az + a];
@@ -210,7 +219,82 @@ class Builder {
       this.slab(x0 + th / 2, x1 - th / 2, z0 + th / 2, z1 - th / 2, k * FLOOR, o.floorMat, [[sx0 - 0.1, sx0 + STEPS * RUN + 0.1, hz0, hz1]], 0.25);
     }
     if (o.roof) this.roofClutter(x0, x1, south ? z0 + 0.6 : z0 + 4.8, south ? z1 - 4.8 : z1 - 0.6, H, o.roof);
+    this.bayVolumes(bays, { x0, x1, z0, z1, H, floors }, o);
+    this.dress({ x0, x1, z0, z1, H, floors, sx0, lane: (floors - 1) % 2 === 1 ? laneB : laneA, arriveLow: (floors - 1) % 2 === 1, south, wins }, o);
     return { x0, x1, z0, z1, H };
+  }
+  bayVolumes(bays, { x0, x1, z0, z1, H, floors }, o) {
+    const D = 0.85, glass = this.mat('bayGlass', () => std({ color: 0x1c2630, roughness: 0.15, metalness: 0.6, emissive: 0x0a1018 }));
+    const trim = o.trimMat || this.mat('trim' + o.wallMat.uuid, () => { const m = o.wallMat.clone(); m.color = o.wallMat.color.clone().multiplyScalar(0.7); return m; });
+    for (const [side, [a, b]] of Object.entries(bays)) {
+      const along = side === 'n' || side === 's'; const L = b - a, m = (a + b) / 2;
+      const out = side === 'n' ? -1 : side === 's' ? 1 : side === 'w' ? -1 : 1;
+      const wallLine = side === 'n' ? z0 : side === 's' ? z1 : side === 'w' ? x0 : x1;
+      const c = wallLine + out * (0.15 + D / 2), face = wallLine + out * (0.15 + D);
+      const px = along ? x0 + m : c, pz = along ? c : z0 + m;
+      this.solid(px, 0, pz, along ? L : D, H + 1.4, along ? D : L, o.wallMat, { ts: 3, col: { bay: true } });
+      this.solid(px, H + 1.4, pz, along ? L + 0.3 : D + 0.3, 0.22, along ? D + 0.3 : L + 0.3, trim, { ts: 2 });
+      for (let k = 0; k < floors; k++) {                                          // a tall pane per floor + a sill band
+        const y = k * FLOOR + 0.9; const fx = along ? x0 + m : face + out * 0.02, fz = along ? face + out * 0.02 : z0 + m;
+        this.solid(fx, y, fz, along ? L - 0.8 : 0.04, 1.6, along ? 0.04 : L - 0.8, glass, { collide: false });
+        this.solid(along ? x0 + m : face + out * 0.06, y - 0.12, along ? face + out * 0.06 : z0 + m, along ? L - 0.5 : 0.14, 0.12, along ? 0.14 : L - 0.5, trim, { collide: false });
+      }
+    }
+  }
+  // Architectural detail so towers stop reading as plain boxes: corner pilasters, floor cornices, window sills
+  // and headers, parapet coping, a rooftop stair bulkhead, optional crenellations and door awnings.
+  dress({ x0, x1, z0, z1, H, floors, sx0, lane, arriveLow, south, wins }, o) {
+    const base = o.wallMat; const trim = o.trimMat || this.mat('trim' + base.uuid, () => { const m = base.clone(); m.color = base.color.clone().multiplyScalar(0.7); return m; });
+    const vis = (cx, y, cz, sx, sy, sz) => this.solid(cx, y, cz, sx, sy, sz, trim, { collide: false, ts: 2 });
+    const W = x1 - x0, Dp = z1 - z0, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+    // corner pilasters (solid, slightly proud of the walls)
+    for (const [px, pz] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) this.solid(px, 0, pz, 0.62, H + 1.25, 0.62, trim, { ts: 2 });
+    // floor-line cornices + crown coping on the parapet
+    const band = (y, h, out) => { vis(cx, y, z0 - 0.15 - out / 2, W + 0.3 + out * 2, h, out); vis(cx, y, z1 + 0.15 + out / 2, W + 0.3 + out * 2, h, out); vis(x0 - 0.15 - out / 2, y, cz, out, h, Dp + 0.3); vis(x1 + 0.15 + out / 2, y, cz, out, h, Dp + 0.3); };
+    for (let k = 1; k < floors; k++) band(k * FLOOR - 0.1, 0.2, 0.14);
+    band(H + 0.8, 0.28, 0.22);
+    // window sills + headers
+    for (const [side, list] of Object.entries(wins)) for (const h of list) {
+      const m = (h.a + h.b) / 2, L = h.b - h.a + 0.24;
+      for (const [y, hh] of [[h.y0 - 0.09, 0.09], [h.y1, 0.12]]) {
+        if (side === 'n') vis(x0 + m, y, z0 - 0.22, L, hh, 0.16); else if (side === 's') vis(x0 + m, y, z1 + 0.22, L, hh, 0.16);
+        else if (side === 'w') vis(x0 - 0.22, y, z0 + m, 0.16, hh, L); else vis(x1 + 0.22, y, z0 + m, 0.16, hh, L);
+      }
+    }
+    // rooftop stair bulkhead: a small walled hut over the stairwell, open toward the arrival end
+    const stairSide = south ? 's' : 'n';
+    const ladderClash = (o.ladders || []).some(([sd, a]) => sd === stairSide && a > 0.8 && a < 9);
+    if (!o.noBulkhead && !ladderClash) {
+      const bx0 = sx0 - 0.3, bx1 = sx0 + STEPS * RUN + 0.3, wl = south ? z1 : z0;
+      const za = Math.min(lane - 1.05, wl), zb = Math.max(lane + 1.05, wl); const inner = south ? za : zb; const hh = 2.6;
+      const endX = arriveLow ? bx1 : bx0;                                           // closed end (where the last flight starts)
+      this.block(endX - 0.15, endX + 0.15, za, zb, H, H + hh, base, { ts: 3 });
+      const iz = inner + (south ? -0.15 : 0.15); this.block(bx0, bx1, iz - 0.15, iz + 0.15, H, H + hh, base, { ts: 3 });
+      this.block(bx0, bx1, wl - 0.15, wl + 0.15, H + 1.0, H + hh, base, { ts: 3 });   // outer wall continues up from the parapet
+      this.block(bx0 - 0.2, bx1 + 0.2, Math.min(za, iz) - 0.2, Math.max(zb, iz) + 0.2, H + hh, H + hh + 0.2, trim, { ts: 3 });
+    }
+    // crenellated parapet (forts / temples)
+    if (o.crenel) {
+      const skip = (side, a) => (o.ladders || []).some(([sd, la]) => sd === side && Math.abs(la - a) < 1.3) || (o.doorsUp || []).some(([sd, la, lv]) => sd === side && lv * FLOOR >= H && Math.abs(la - a) < 1.6);
+      for (const [side, L] of [['n', W], ['s', W], ['w', Dp], ['e', Dp]]) for (let a = 0.9; a < L - 0.6; a += 1.5) {
+        if (skip(side, a)) continue;
+        const p = side === 'n' ? [x0 + a, z0] : side === 's' ? [x0 + a, z1] : side === 'w' ? [x0, z0 + a] : [x1, z0 + a];
+        const along = side === 'n' || side === 's';
+        this.solid(p[0], H + 1.0, p[1], along ? 0.7 : 0.4, 0.55, along ? 0.4 : 0.7, base, { ts: 2 });
+      }
+    }
+    // door awnings (visual)
+    if (o.awning) {
+      const aw = this.mat('awning' + o.awning, () => std({ color: o.awning, roughness: 0.7, side: THREE.DoubleSide }));
+      for (const side of o.doors || []) {
+        if ((o.open || []).includes(side)) continue;
+        const L = side === 'n' || side === 's' ? W : Dp; void L;
+        const g = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.06, 1.1), aw); g.castShadow = true;
+        if (side === 'n') { g.position.set(cx, 2.75, z0 - 0.7); g.rotation.x = -0.25; } else if (side === 's') { g.position.set(cx, 2.75, z1 + 0.7); g.rotation.x = 0.25; }
+        else if (side === 'w') { g.geometry.rotateY(Math.PI / 2); g.position.set(x0 - 0.7, 2.75, cz); g.rotation.z = 0.25; } else { g.geometry.rotateY(Math.PI / 2); g.position.set(x1 + 0.7, 2.75, cz); g.rotation.z = -0.25; }
+        this.group.add(g);
+      }
+    }
   }
   // rooftop props on the stair-free half of a roof: AC units, water tank, vents, antenna
   roofClutter(x0, x1, z0, z1, y, seed = 1) {
@@ -220,6 +304,64 @@ class Builder {
     for (let i = 0; i < n; i++) { const w = 1.0 + r() * 0.8, d = 0.8 + r() * 0.5; const x = x0 + 1 + r() * Math.max(0.1, x1 - x0 - 2 - w), z = z0 + r() * Math.max(0.1, z1 - z0 - d); this.solid(x + w / 2, y, z + d / 2, w, 0.9 + r() * 0.3, d, i % 2 ? dark : metal); }
     if (r() < 0.6) { const tx = x0 + 1.4 + r() * Math.max(0.1, x1 - x0 - 2.8), tz = (z0 + z1) / 2; const t = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 1.6, 16), dark); t.position.set(tx, y + 1.9, tz); t.castShadow = true; this.group.add(t); for (const [dx, dz] of [[-0.6, -0.6], [0.6, -0.6], [-0.6, 0.6], [0.6, 0.6]]) this.solid(tx + dx, y, tz + dz, 0.1, 1.1, 0.1, metal); this.world.addCS(tx, y + 1.5, tz, 1.6, 2.4, 1.6); }
     if (r() < 0.5) this.solid(x1 - 0.8, y, z0 + 0.4, 0.08, 3.5, 0.08, metal, { collide: false });
+  }
+  // Underground tunnel network on the 1 m grid (integer coords). Floor at -depth, 2.6 m clear headroom,
+  // ceiling slab flush with the surface. rects: [x0,x1,z0,z1] covered corridors/chambers.
+  // stairs: { x0,x1,z0,z1, up: '+z'|'-z'|'+x'|'-x' } open stairwells (6 m long) climbing toward the exit edge.
+  tunnel({ rects = [], stairs = [], pillars = [], mat, floorMat, depth = 3 }) {
+    const D = -depth, CEIL = -0.4, K = (x, z) => x * 1000 + z;
+    const cells = this.world.pits?.cells || new Map();
+    this.world.pits = { cells, floor: D, open: this.world.pits?.open || [] };
+    for (const [x0, x1, z0, z1] of rects) for (let x = x0; x < x1; x++) for (let z = z0; z < z1; z++) if (!cells.has(K(x, z))) cells.set(K(x, z), 'c');
+    const exits = new Set();
+    for (const s of stairs) {
+      for (let x = s.x0; x < s.x1; x++) for (let z = s.z0; z < s.z1; z++) { cells.set(K(x, z), 'o'); this.world.pits.open.push([x, z]); }
+      const ax = s.up[1], dir = s.up[0] === '+' ? 1 : -1;
+      if (ax === 'z') { this.flight((s.x0 + s.x1) / 2, dir > 0 ? s.z0 : s.z1, 'z', dir, s.x1 - s.x0, D, floorMat); for (let x = s.x0; x < s.x1; x++) exits.add(`${x},${dir > 0 ? s.z1 - 1 : s.z0},${s.up}`); }
+      else { this.flight(dir > 0 ? s.x0 : s.x1, (s.z0 + s.z1) / 2, 'x', dir, s.z1 - s.z0, D, floorMat); for (let z = s.z0; z < s.z1; z++) exits.add(`${dir > 0 ? s.x1 - 1 : s.x0},${z},${s.up}`); }
+    }
+    const ceilVis = this.mat('tunCeil', () => std({ map: tex('concrete'), color: 0x6a6e72, roughness: 0.95 }));
+    const lamp = this.mat('tunLamp', () => std({ color: 0xffffff, emissive: 0xffd9a0, emissiveIntensity: 2.4, toneMapped: false }));
+    const lampMat = [];
+    // decode keys (negative coords: x = round(k/1000))
+    const all = []; for (const k of cells.keys()) { const x = Math.round(k / 1000); const z = k - x * 1000; all.push([x, z, cells.get(k)]); }
+    // floor + ceiling, merged per row into x-runs
+    const rows = new Map(); for (const [x, z, t] of all) { if (!rows.has(z)) rows.set(z, []); rows.get(z).push([x, t]); }
+    for (const [z, xs] of rows) {
+      xs.sort((p, q) => p[0] - q[0]);
+      for (let i = 0; i < xs.length;) { let j = i; while (j + 1 < xs.length && xs[j + 1][0] === xs[j][0] + 1) j++; this.block(xs[i][0], xs[j][0] + 1, z, z + 1, D - 0.3, D, floorMat, { col: { tunnel: true } }); i = j + 1; }
+      const cov = xs.filter(([, t]) => t === 'c');
+      for (let i = 0; i < cov.length;) {
+        let j = i; while (j + 1 < cov.length && cov[j + 1][0] === cov[j][0] + 1) j++;
+        const x0 = cov[i][0], x1 = cov[j][0] + 1; this.world.addCS((x0 + x1) / 2, (CEIL) / 2, z + 0.5, x1 - x0, -CEIL, 1, { tunnel: true });
+        this.batch(boxUV(x1 - x0, 0.3, 1, 3), ceilVis, (x0 + x1) / 2, CEIL + 0.15 - 0.06, z + 0.5);
+        for (let x = x0; x < x1; x++) if ((((x % 3) + 3) % 3 === 1) && (((z % 4) + 4) % 4 === 0)) lampMat.push(M4(x + 0.5, CEIL - 0.09, z + 0.5));
+        i = j + 1;
+      }
+    }
+    // walls on every boundary edge (+ low parapets around open stairwells), merged into runs
+    const segs = new Map(); // key: orient|line|y0|y1|side → [a...]
+    const seg = (o, line, a, y0, y1, side) => { const k = `${o}|${line}|${y0}|${y1}|${side}`; if (!segs.has(k)) segs.set(k, []); segs.get(k).push(a); };
+    for (const [x, z, t] of all) {
+      const top = t === 'o' ? 1.0 : 0;
+      for (const [dx, dz, nm] of [[1, 0, '+x'], [-1, 0, '-x'], [0, 1, '+z'], [0, -1, '-z']]) {
+        const nt = cells.get(K(x + dx, z + dz));
+        if (nt) { if (t === 'o' && nt === 'c') seg(dx ? 'x' : 'z', dx ? (dx > 0 ? x + 1 : x) : (dz > 0 ? z + 1 : z), dx ? z : x, 0, 1.0, 0); continue; }
+        if (exits.has(`${x},${z},${nm}`)) continue;
+        seg(dx ? 'x' : 'z', dx ? (dx > 0 ? x + 1 : x) : (dz > 0 ? z + 1 : z), dx ? z : x, D - 0.3, top, dx || dz);
+      }
+    }
+    for (const [k, as] of segs) {
+      const [o, lineS, y0S, y1S, sideS] = k.split('|'); const line = +lineS, y0 = +y0S, y1 = +y1S, side = +sideS;
+      as.sort((p, q) => p - q);
+      for (let i = 0; i < as.length;) {
+        let j = i; while (j + 1 < as.length && as[j + 1] === as[j] + 1) j++;
+        const a0 = as[i], a1 = as[j] + 1; const th = 0.3; const c = side === 0 ? line : line + side * th / 2; i = j + 1;
+        const wo = { ts: 3, col: { tunnel: true } }; if (o === 'x') this.block(c - th / 2, c + th / 2, a0, a1, y0, y1, mat, wo); else this.block(a0, a1, c - th / 2, c + th / 2, y0, y1, mat, wo);
+      }
+    }
+    for (const [x, z] of pillars) this.block(x - 0.4, x + 0.4, z - 0.4, z + 0.4, D, CEIL, mat, { ts: 3, col: { tunnel: true } });
+    if (lampMat.length) this.instanced(new THREE.BoxGeometry(0.9, 0.05, 0.18), lamp, lampMat, null, false);
   }
   instanced(geo, mat, matrices, colors, shadow = true) {
     const im = new THREE.InstancedMesh(geo, mat, matrices.length);
@@ -266,6 +408,8 @@ function pine(b, x, z, h = 7) {
   const green = b.mat('pineG', () => std({ color: 0x2a4a34, roughness: 0.85, flatShading: true })), snow = b.mat('pineS', () => std({ color: 0xf2f6fa, roughness: 0.8, flatShading: true }));
   for (let k = 0; k < 3; k++) { const r = (1.9 - k * 0.5) * h / 7, hh = h * 0.32; const c = new THREE.Mesh(new THREE.ConeGeometry(r, hh, 8), green); c.position.set(x, h * 0.3 + k * h * 0.2 + hh / 2, z); c.castShadow = true; b.group.add(c); const cap = new THREE.Mesh(new THREE.ConeGeometry(r * 0.55, hh * 0.45, 8), snow); cap.position.set(x, h * 0.3 + k * h * 0.2 + hh * 0.78, z); b.group.add(cap); }
   b.world.addCS(x, h * 0.3, z, 0.6, h * 0.6, 0.6);
+  const r0 = 1.9 * h / 7;   // foliage: wide lower skirt, narrower crown (cones have no other collision)
+  b.world.addCS(x, h * 0.46, z, r0 * 1.5, h * 0.32, r0 * 1.5); b.world.addCS(x, h * 0.81, z, r0 * 0.85, h * 0.38, r0 * 0.85);
 }
 
 function ladderVisual(b, x, z, h, ry, y0 = 0, style = 'ladder') {
@@ -289,7 +433,7 @@ function vineVisual(b, x, z, w, h, ry, y0 = 0) {
   im.castShadow = true; b.group.add(im);
 }
 function boulders(b, list, color = 0xc9a07a, mapName = 'rock') {
-  const ms = []; for (const [x, z, sc, rot = 0] of list) { ms.push(new THREE.Matrix4().compose(new THREE.Vector3(x, sc * 0.45, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rot, rot * 2, rot * 3)), new THREE.Vector3(sc, sc * 0.8, sc))); b.world.addCS(x, sc * 0.4, z, sc * 1.4, sc * 0.8, sc * 1.4); }
+  const ms = []; for (const [x, z, sc, rot = 0] of list) { ms.push(new THREE.Matrix4().compose(new THREE.Vector3(x, sc * 0.45, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rot, rot * 2, rot * 3)), new THREE.Vector3(sc, sc * 0.8, sc))); b.world.addCS(x, sc * 0.62, z, sc * 1.7, sc * 1.24, sc * 1.7); }
   b.instanced(new THREE.DodecahedronGeometry(1, 0), std({ map: tex(mapName), color, roughness: 0.95, flatShading: true }), ms);
 }
 function tree(b, x, z, h = 7, leafCol = 0x3f7a2a, trunkCol = 0x5a4028) {
@@ -297,6 +441,7 @@ function tree(b, x, z, h = 7, leafCol = 0x3f7a2a, trunkCol = 0x5a4028) {
   const lm = b.mat('canopy' + leafCol, () => std({ color: leafCol, roughness: 0.85, flatShading: true }));
   for (let i = 0; i < 4; i++) { const c = new THREE.Mesh(new THREE.IcosahedronGeometry(1.6 + (i % 2) * 0.6, 0), lm); c.position.set(x + Math.cos(i * 1.7) * 1.1, h - 0.3 + (i % 3) * 0.5, z + Math.sin(i * 1.7) * 1.1); c.castShadow = true; b.group.add(c); }
   b.world.addCS(x, h / 2, z, 0.6, h, 0.6);
+  b.world.addCS(x, h + 0.35, z, 4.4, 2.8, 4.4);   // canopy
 }
 function rng(seed) { let s = (seed * 9301 + 49297) % 233280 || 1; return () => ((s = (s * 9301 + 49297) % 233280) / 233280); }
 const tint = (base, color) => { const m = base.clone(); m.color = new THREE.Color(color); return m; };
@@ -314,7 +459,7 @@ function prop(b, x, z, ry, parts, mats) {
   b.group.add(g); return g;
 }
 const PROPS = {
-  stall: (b, x, z, ry, col) => prop(b, x, z, ry, [[0, 0, 0, 2.8, 1.0, 1.2, 0], [0, 2.3, 0.2, 3.4, 0.08, 2.2, 1, false], [-1.5, 0, 0.9, 0.08, 2.3, 0.08, 2, false], [1.5, 0, 0.9, 0.08, 2.3, 0.08, 2, false], [-1.5, 0, -0.5, 0.08, 2.3, 0.08, 2, false], [1.5, 0, -0.5, 0.08, 2.3, 0.08, 2, false], [0, 1.0, -0.1, 2.6, 0.3, 0.8, 3]], [b.mat('stallWood', () => std({ map: tex('wood'), roughness: 0.8 })), b.mat('canopy' + col, () => std({ color: col, roughness: 0.7, side: THREE.DoubleSide })), b.mat('pole', () => std({ color: 0x2a2a2a, metalness: 0.5 })), b.mat('goods', () => std({ color: 0xd8a040, roughness: 0.8 }))]),
+  stall: (b, x, z, ry, col) => prop(b, x, z, ry, [[0, 0, 0, 2.8, 1.0, 1.2, 0], [0, 2.3, 0.2, 3.4, 0.08, 2.2, 1], [-1.5, 0, 0.9, 0.1, 2.3, 0.1, 2], [1.5, 0, 0.9, 0.1, 2.3, 0.1, 2], [-1.5, 0, -0.5, 0.1, 2.3, 0.1, 2], [1.5, 0, -0.5, 0.1, 2.3, 0.1, 2], [0, 1.0, -0.1, 2.6, 0.3, 0.8, 3]], [b.mat('stallWood', () => std({ map: tex('wood'), roughness: 0.8 })), b.mat('canopy' + col, () => std({ color: col, roughness: 0.7, side: THREE.DoubleSide })), b.mat('pole', () => std({ color: 0x2a2a2a, metalness: 0.5 })), b.mat('goods', () => std({ color: 0xd8a040, roughness: 0.8 }))]),
   cart: (b, x, z, ry, col) => prop(b, x, z, ry, [[0, 0.3, 0, 1.8, 1.0, 1.0, 0], [0, 1.3, 0, 2.0, 0.08, 1.3, 1, false], [-0.6, 0, 0.45, 0.35, 0.6, 0.12, 2, false], [0.6, 0, 0.45, 0.35, 0.6, 0.12, 2, false]], [b.mat('cartBody' + col, () => std({ color: col, roughness: 0.5, metalness: 0.3 })), b.mat('cartTop', () => std({ color: 0xf0e8d0, roughness: 0.7 })), b.mat('tire', () => std({ color: 0x151515, roughness: 0.9 }))]),
   car: (b, x, z, ry, col) => prop(b, x, z, ry, [[0, 0.25, 0, 1.9, 0.75, 4.2, 0], [0, 1.0, 0.2, 1.7, 0.6, 2.2, 1], [-0.95, 0, -1.3, 0.25, 0.6, 0.6, 2, false], [0.95, 0, -1.3, 0.25, 0.6, 0.6, 2, false], [-0.95, 0, 1.3, 0.25, 0.6, 0.6, 2, false], [0.95, 0, 1.3, 0.25, 0.6, 0.6, 2, false]], [b.mat('car' + col, () => std({ color: col, roughness: 0.6, metalness: 0.4 })), b.mat('carTop' + col, () => std({ color: new THREE.Color(col).multiplyScalar(0.6), roughness: 0.7, metalness: 0.3 })), b.mat('tire', () => std({ color: 0x151515, roughness: 0.9 }))]),
   bus: (b, x, z, ry) => prop(b, x, z, ry, [[0, 0.35, 0, 2.5, 2.6, 9, 0], [0, 1.6, 0, 2.52, 0.8, 8.4, 1, false]], [b.mat('bus', () => std({ color: 0xc8a020, roughness: 0.7, metalness: 0.3 })), b.mat('busWin', () => std({ color: 0x1a2028, roughness: 0.2, metalness: 0.6 }))]),
@@ -322,11 +467,11 @@ const PROPS = {
   barrier: (b, x, z, ry) => prop(b, x, z, ry, [[0, 0, 0, 3, 0.95, 0.6, 0]], [b.mat('jersey', () => std({ map: tex('concrete'), color: 0xc8c4bc, roughness: 0.9 }))]),
   pallet: (b, x, z, ry) => prop(b, x, z, ry, [[0, 0, 0, 1.4, 0.15, 1.2, 0], [0, 0.15, 0, 1.3, 1.0, 1.1, 1]], [b.mat('palletW', () => std({ map: tex('wood'), roughness: 0.85 })), b.mat('wrap', () => std({ color: 0xb8c0c8, roughness: 0.3, metalness: 0.1, transparent: true, opacity: 0.85 }))]),
   log: (b, x, z, ry) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.5, 6, 10).rotateZ(Math.PI / 2), b.mat('logM', () => std({ color: 0x4a3420, roughness: 0.95 }))); m.position.set(x, 0.45, z); m.rotation.y = ry; m.castShadow = true; b.group.add(m); const c = Math.abs(Math.cos(ry)), s = Math.abs(Math.sin(ry)); b.world.addCS(x, 0.45, z, 6 * c + 0.9 * s, 0.9, 6 * s + 0.9 * c); },
-  tent: (b, x, z, ry, col = 0xb8a070) => { const t = new THREE.Mesh(new THREE.ConeGeometry(2.2, 2.4, 4, 1, true), b.mat('tent' + col, () => std({ color: col, roughness: 0.9, side: THREE.DoubleSide }))); t.position.set(x, 1.2, z); t.rotation.y = ry + Math.PI / 4; t.castShadow = true; b.group.add(t); b.world.addCS(x, 0.9, z, 2.2, 1.8, 2.2); },
+  tent: (b, x, z, ry, col = 0xb8a070) => { const t = new THREE.Mesh(new THREE.ConeGeometry(2.2, 2.4, 4, 1, true), b.mat('tent' + col, () => std({ color: col, roughness: 0.9, side: THREE.DoubleSide }))); t.position.set(x, 1.2, z); t.rotation.y = ry + Math.PI / 4; t.castShadow = true; b.group.add(t); b.world.addCS(x, 0.45, z, 2.6, 0.9, 2.6); b.world.addCS(x, 1.35, z, 1.5, 0.9, 1.5); b.world.addCS(x, 2.0, z, 0.6, 0.5, 0.6); },
   vending: (b, x, z, ry, col) => prop(b, x, z, ry, [[0, 0, 0, 1.0, 2.0, 0.8, 0], [0, 0.9, -0.41, 0.8, 0.9, 0.02, 1, false]], [b.mat('vend' + col, () => std({ color: col, roughness: 0.5, metalness: 0.3 })), b.mat('vendGlow' + col, () => std({ color: 0xffffff, emissive: col, emissiveIntensity: 1.5 }))]),
   sandbags: (b, x, z, ry) => prop(b, x, z, ry, [[0, 0, 0, 3.0, 0.9, 0.7, 0]], [b.mat('bagsM', () => std({ color: 0xb59a6a, roughness: 0.95 }))]),
   snowbank: (b, x, z, ry) => { const m = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), b.mat('snowM', () => std({ color: 0xf4f8fc, roughness: 0.85 }))); m.scale.set(2.6, 1.1, 1.3); m.position.set(x, 0, z); m.rotation.y = ry; m.receiveShadow = m.castShadow = true; b.group.add(m); const c = Math.abs(Math.cos(ry)), s = Math.abs(Math.sin(ry)); b.world.addCS(x, 0.5, z, 4.4 * c + 2.2 * s, 1.0, 4.4 * s + 2.2 * c); },
-  table: (b, x, z, ry, col) => prop(b, x, z, ry, [[0, 0, 0, 1.4, 0.8, 1.4, 0], [0, 0.8, 0, 0.06, 1.4, 0.06, 1, false], [0, 2.2, 0, 2.4, 0.06, 2.4, 2, false]], [b.mat('tableW', () => std({ map: tex('wood'), roughness: 0.8 })), b.mat('pole', () => std({ color: 0x2a2a2a, metalness: 0.5 })), b.mat('umb' + col, () => std({ color: col, roughness: 0.7, side: THREE.DoubleSide }))]),
+  table: (b, x, z, ry, col) => prop(b, x, z, ry, [[0, 0, 0, 1.4, 0.8, 1.4, 0], [0, 0.8, 0, 0.08, 1.4, 0.08, 1], [0, 2.2, 0, 2.4, 0.06, 2.4, 2]], [b.mat('tableW', () => std({ map: tex('wood'), roughness: 0.8 })), b.mat('pole', () => std({ color: 0x2a2a2a, metalness: 0.5 })), b.mat('umb' + col, () => std({ color: col, roughness: 0.7, side: THREE.DoubleSide }))]),
   statue: (b, x, z, ry) => prop(b, x, z, ry, [[0, 0, 0, 1.6, 0.8, 1.6, 0], [0, 0.8, 0, 0.9, 2.0, 0.7, 1], [0, 2.8, 0, 0.6, 0.6, 0.6, 1]], [b.mat('stoneP', () => std({ map: tex('rock'), color: 0x8a8a72, roughness: 0.95 })), b.mat('stoneS', () => std({ map: tex('concrete'), color: 0x7a8a62, roughness: 0.95 }))]),
   pipes: (b, x, z, ry) => { const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ry; const m = b.mat('pipeM', () => std({ color: 0x6a7078, metalness: 0.8, roughness: 0.35 })); for (const [px, py] of [[-0.5, 0.35], [0.5, 0.35], [0, 1.0]]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 5, 12).rotateX(Math.PI / 2), m); p.position.set(px, py, 0); p.castShadow = true; g.add(p); } b.group.add(g); const c = Math.abs(Math.cos(ry)), s = Math.abs(Math.sin(ry)); b.world.addCS(x, 0.7, z, 1.7 * c + 5 * s, 1.4, 1.7 * s + 5 * c); },
   hut: (b, x, z, ry) => prop(b, x, z, ry, [[0, 0, 0, 3, 2.6, 2.4, 0], [0, 2.6, 0, 3.4, 0.15, 2.8, 1, false]], [b.mat('hutM', () => std({ map: tex('plate'), color: 0xc8c0a8, roughness: 0.6, metalness: 0.3 })), b.mat('hutRoof', () => std({ color: 0x3a3e44, metalness: 0.5 }))]),
@@ -344,6 +489,16 @@ function scatter(b, r, kinds, n, x0, x1, z0, z1, keep = [], colors = [0xc8352b])
   }
   return pts;
 }
+// Point-symmetric tunnel: a stairwell near each team's side, a corridor under the field, and a tight central
+// chamber (with pillars) where both corridors meet offset from each other. mid: extra stairwells out of the chamber ends.
+function crossTunnel(b, { xo = 6, zE = 23, zC = 3, mat, floorMat, pillars = [], mid = false, rects = [], stairs = [] }) {
+  const R = (r) => [r, [-r[1], -r[0], -r[3], -r[2]]];
+  const flip = (st) => ({ x0: -st.x1, x1: -st.x0, z0: -st.z1, z1: -st.z0, up: (st.up[0] === '+' ? '-' : '+') + st.up[1] });
+  const cw = xo + 3;
+  const st = [{ x0: xo, x1: xo + 3, z0: zE - 6, z1: zE, up: '+z' }, ...stairs];
+  if (mid) st.push({ x0: cw, x1: cw + 6, z0: 0, z1: zC, up: '+x' });
+  b.tunnel({ rects: [...R([xo, xo + 3, zC, zE - 6]), [-cw, cw, -zC, zC], ...rects.flatMap(R)], stairs: [...st, ...st.map(flip)], pillars: [...pillars, ...pillars.map(([x, z]) => [-x, -z])], mat, floorMat });
+}
 const mirror = (list) => [...list, ...list.map(([x, z, ...r]) => [-x, -z, ...r])];
 const V3 = (list) => list.map(([x, z]) => new THREE.Vector3(x, 0, z));
 function teamSpawns(b, red) { b.spawns.red = V3(red); b.spawns.blue = V3(red.map(([x, z]) => [-x, -z])); }
@@ -359,8 +514,8 @@ function cargoYard() {
   const floorM = std({ map: tex('plate'), color: 0x9aa0a6, roughness: 0.6, metalness: 0.4 });
   b.perimeter(concrete, 6);
   // twin port offices joined by a sky bridge at the 2nd floor (y = 6) over the open yard
-  b.tower(-20, 0, 12, 10, { wallMat: office, floorMat: floorM, doors: ['n', 's', 'w'], open: ['e'], ladders: [['w', 7]], doorsUp: [['e', 5, 2]], balconies: [['s', 1, 8, 5]], roof: 3, winW: 1.4, winGap: 2.4 });
-  b.tower(20, 1, 10, 12, { wallMat: tint(office, 0x9fb4c8), floorMat: floorM, doors: ['n', 'e'], open: ['w'], ladders: [['e', 3]], doorsUp: [['w', 5, 2]], balconies: [['s', 2, 5, 4]], roof: 7, winW: 2.4, winGap: 3.4, winY0: 0.9, winY1: 2.5 });
+  b.tower(-20, 0, 12, 10, { awning: 0x2d6cb5, wallMat: office, floorMat: floorM, doors: ['n', 's', 'w'], open: ['e'], ladders: [['w', 7]], doorsUp: [['e', 5, 2]], balconies: [['s', 1, 8, 5]], roof: 3, winW: 1.4, winGap: 2.4 });
+  b.tower(20, 1, 10, 12, { awning: 0xc8352b, wallMat: tint(office, 0x9fb4c8), floorMat: floorM, doors: ['n', 'e'], open: ['w'], ladders: [['e', 3]], doorsUp: [['w', 5, 2]], balconies: [['s', 2, 5, 4]], roof: 7, winW: 2.4, winGap: 3.4, winY0: 0.9, winY1: 2.5 });
   b.solid(-27.5, 0, 12, 4, 3.2, 5, tint(office, 0xb8a888), { ts: 3 }); b.solid(-27.5, 3.2, 12, 4.4, 0.2, 5.4, std({ color: 0x3a3e44, metalness: 0.5 }));   // gatehouse
   const deck = std({ map: tex('plate'), color: 0x8a9096, metalness: 0.7, roughness: 0.4 });
   const rail = std({ color: 0xf2c21b, metalness: 0.5, roughness: 0.4 });
@@ -387,8 +542,9 @@ function cargoYard() {
   b.solid(-6, 13.6, -14, 3, 1.6, 2.4, std({ color: 0xa82a20, metalness: 0.4, roughness: 0.5 }), { collide: false });
   b.crates([[-4, 5], [-3, 6.2], [-3.6, 5.6, 1.2, 1.2], [4, -16], [16, 7], [-26, 8], [26, -26], [3, -6], [9.5, 15], [-14, -15], [-15.1, -15.6]], std({ map: tex('crate'), roughness: 0.8 }));
   b.barrels([[-11, 3], [-10.4, 3.6], [6, 15], [-27, -5], [12, -4], [12.5, -4.6], [-5, -17], [24, 9]]);
+  crossTunnel(b, { xo: 6, pillars: [[4.5, 1.5], [1.5, -1.5]], mat: tint(concrete, 0x8a8e92), floorMat: tint(concrete, 0x6a6e72) });   // drainage culvert
   teamSpawns(b, [[-16, 27], [-8, 27], [-2, 26.5], [4, 26.5], [9, 27], [16, 27.5], [0, 25.2]]);
-  b.spawns.ffa = V3([[-27, -27], [27, 27], [-27, 27], [27, -27], [0, 5], [-5, -4], [6, 4], [-27, -8], [27, 8], [-8, 17], [8, -17], [0, -27], [0, 27]]);
+  b.spawns.ffa = V3([[-27, -27], [27, 27], [-27, 27], [27, -27], [0, 5], [-5, -4], [3, 5], [-27, -8], [27, 8], [-8, 17], [8, -17], [0, -27], [0, 27]]);
   scatter(b, rng(11), ['pallet', 'barrier', 'pallet', 'dumpster'], 9, -13, 13, -18, 18);
   b.finish();
   return { b, env: { sky: 'day', sun: [0.55, 0.85, 0.35], sunColor: 0xfff1d6, sunI: 2.8, hemi: [0xbfd8ff, 0x5a5048, 1.05], fog: [0xb9cde0, 60, 170], exposure: 1.0, terrain: { amp: 0.45, scale: 7, seed: 5 }, mountains: { color: 0x6a7a72, height: 20, seed: 4 } } };
@@ -408,7 +564,7 @@ function desertOutpost() {
   }
   // four corner towers, open toward the courtyard, joined by rampart walls (walkway at y = 6)
   const dvar = { '-1,-1': { roof: 4, winW: 1.0, winGap: 2.2, wallMat: stone }, '1,-1': { roof: 0, ruined: true, wallMat: tint(stone, 0xc8a878) }, '-1,1': { roof: 9, winW: 2.2, winGap: 3.6, wallMat: tint(stone, 0xe0cca8) }, '1,1': { roof: 5, winW: 1.4, winGap: 2.8, wallMat: tint(stone, 0xb89870), balconies: [['e', 1, 4, 4]] } };
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.tower(sx * 20, sz * 18, 10, 8, { floorMat: floorM, stairMat: stone, doors: [sx < 0 ? 'w' : 'e'], open: [sz < 0 ? 's' : 'n'], ladders: [[sz < 0 ? 'n' : 's', sx < 0 ? 3 : 7]], doorsUp: [[sz < 0 ? 's' : 'n', 5, 2]], stairs: sz < 0 ? 'n' : 's', ...dvar[`${sx},${sz}`] });
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.tower(sx * 20, sz * 18, 10, 8, { floorMat: floorM, stairMat: stone, doors: [sx < 0 ? 'w' : 'e'], open: [sz < 0 ? 's' : 'n'], ladders: [[sz < 0 ? 'n' : 's', sx < 0 ? 3 : 7]], doorsUp: [[sz < 0 ? 's' : 'n', 5, 2]], stairs: sz < 0 ? 'n' : 's', crenel: true, ...dvar[`${sx},${sz}`] });
   for (const sx of [-1, 1]) {
     const x = sx * 20;
     b.wall(x, -14, x, 14, 0, 6, 3, stone, [{ a: 11, b: 17, y0: 0, y1: 3.2 }], { ts: 3 });  // rampart with a gate
@@ -418,17 +574,19 @@ function desertOutpost() {
   // central scaffold watchtower (platforms at 3 / 6 / 9 m)
   const wood = std({ map: tex('wood'), roughness: 0.75 });
   b.scaffold(0, 0, 4, 4, 3, wood, std({ color: 0x6a4a2a, roughness: 0.9 }), ['s', 'n', 's']);
-  b.solid(0, 10.2, 0, 5, 0.15, 5, std({ color: 0x7a6040, roughness: 0.9 }), { collide: false });
+  b.solid(0, 11.1, 0, 5, 0.15, 5, std({ color: 0x7a6040, roughness: 0.9 }));
+  for (const [px, pz] of [[-1.85, -1.85], [1.85, -1.85], [-1.85, 1.85], [1.85, 1.85]]) b.solid(px, 9, pz, 0.15, 2.1, 0.15, std({ color: 0x6a4a2a, roughness: 0.9 }));
   // sandbags + cover
   const sb = []; const bags = (x, z, n, alongX) => { for (let i = 0; i < n; i++) for (let l = 0; l < 3; l++) { const o = (i - n / 2) * 0.62 + (l % 2) * 0.3; sb.push(M4(x + (alongX ? o : 0), 0.14 + l * 0.27, z + (alongX ? 0 : o), alongX ? 0 : Math.PI / 2)); } b.world.addCS(x, 0.45, z, alongX ? n * 0.62 + 0.3 : 0.5, 0.9, alongX ? 0.5 : n * 0.62 + 0.3); };
   for (const [x, z, n, ax] of mirror([[-8, -8, 4, true], [8, -6, 4, false], [0, -12, 6, true], [-12, 0, 5, false]])) bags(x, z, n, ax);
   const bagGeo = new THREE.CapsuleGeometry(0.15, 0.32, 4, 8).rotateZ(Math.PI / 2); bagGeo.scale(1, 0.85, 1.35);
   b.instanced(bagGeo, std({ color: 0xb59a6a, roughness: 0.95 }), sb);
   b.crates([[-5, 18], [-4, 19.2], [12, -3], [-24, -27.5], [26, 6], [5, -18], [6.1, -18.6], [-12, -8]], std({ map: tex('crate'), roughness: 0.8 }));
-  boulders(b, [[-14, 10, 1.4, 1], [10, 13, 1.1, 2], [-27, 4, 1.6, 3], [24, 25, 1.3, 4], [13, -11, 1.0, 5], [-9, -15, 1.3, 6], [27, -6, 1.7, 7]]);
+  boulders(b, [[-14, 10, 1.4, 1], [10, 13, 1.1, 2], [-27, 4, 1.6, 3], [24, 25, 1.3, 4], [13, -11, 1.0, 5], [-8, -12.5, 1.3, 6], [27, -6, 1.7, 7]]);
   const jeep = std({ color: 0x5c6440, roughness: 0.7, metalness: 0.3 });
-  b.solid(-7, 0.4, 13, 2, 0.9, 4, jeep); b.solid(-7, 1.3, 12.4, 1.8, 0.6, 1.6, jeep, { collide: false });
+  b.solid(-7, 0.4, 13, 2, 0.9, 4, jeep); b.solid(-7, 1.3, 12.4, 1.8, 0.6, 1.6, jeep);
   for (const [x, z] of [[-27, -14], [27, 14]]) tree(b, x, z, 6, 0x4f7a2a, 0x7a5a38);
+  crossTunnel(b, { xo: 9, zE: 22, pillars: [[6, 1.5], [2, -1.5]], mat: tint(stone, 0xb09878), floorMat: tint(stone, 0x9a8466) });   // smugglers' tunnel
   teamSpawns(b, [[-12, 27], [-6, 27], [0, 27.5], [6, 27], [12, 27], [-3, 25], [3, 25]]);
   b.spawns.ffa = V3([[-27, -27], [27, 27], [-27, 27], [27, -27], [-5, -5], [5, 5], [0, -18], [0, 18], [-14, -4], [14, 4], [-26, 0], [26, 0]]);
   scatter(b, rng(23), ['tent', 'sandbags', 'tent', 'cart'], 8, -16, 16, -12, 12, [[0, 0, 4]], [0x8a7a5a, 0xb8a070, 0x7a6a50]);
@@ -449,7 +607,7 @@ function abandonedCity() {
   // four ruined 3-story blocks; inner facades fully open (balconies) for cross-street fights
   const cvar = { '-1,-1': { wallMat: brick, roof: 2, ruined: true }, '1,-1': { wallMat: tint(brick2, 0xc8b8a0), roof: 8, winW: 1.2, winGap: 2.2, balconies: [['e', 1, 4, 3], ['e', 2, 8, 3]] }, '-1,1': { wallMat: tint(brick, 0x9a7a6a), roof: 6, winW: 2.4, winGap: 3.6, winY0: 0.8, winY1: 2.5 }, '1,1': { wallMat: brick2, roof: 12, balconies: [['e', 1, 6, 5]] } };
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    b.tower(sx * 19, sz * 19, 14, 12, { floorMat: concrete, doors: [sx < 0 ? 'e' : 'w'], open: [sz < 0 ? 's' : 'n'], vines: [[sx < 0 ? 'e' : 'w', 3, 9], [sx < 0 ? 'e' : 'w', 9, 6]], ladders: [[sz < 0 ? 'n' : 's', 7]], doorsUp: [[sz < 0 ? 's' : 'n', 7, 2]], stairs: sz < 0 ? 'n' : 's', ...cvar[`${sx},${sz}`] });
+    b.tower(sx * 19, sz * 19, 14, 12, { awning: [0x7a2a20, 0x2a4a3a, 0x5a4a2a, 0x2a3a5a][(sx + 1) + (sz + 1) / 2], floorMat: concrete, doors: [sx < 0 ? 'e' : 'w'], open: [sz < 0 ? 's' : 'n'], vines: [[sx < 0 ? 'e' : 'w', 3, 9], [sx < 0 ? 'e' : 'w', 9, 6]], ladders: [[sz < 0 ? 'n' : 's', 7]], doorsUp: [[sz < 0 ? 's' : 'n', 7, 2]], stairs: sz < 0 ? 'n' : 's', ...cvar[`${sx},${sz}`] });
   }
   // street-spanning footbridges at 6 m connecting the north/south blocks on each side
   const deck = std({ map: tex('plate'), color: 0x7a7470, metalness: 0.5, roughness: 0.6 });
@@ -467,10 +625,11 @@ function abandonedCity() {
   const rub = []; let sd = 3; const r = () => ((sd = (sd * 9301 + 49297) % 233280) / 233280);
   for (const [x, z] of mirror([[-6, 5], [5, -14], [-25, 0]])) { for (let i = 0; i < 6; i++) rub.push(new THREE.Matrix4().compose(new THREE.Vector3(x + (r() - 0.5) * 2, 0.2, z + (r() - 0.5) * 2), new THREE.Quaternion().setFromEuler(new THREE.Euler(r() * 3, r() * 3, r() * 3)), new THREE.Vector3(0.4 + r() * 0.5, 0.3 + r() * 0.4, 0.4 + r() * 0.5))); b.world.addCS(x, 0.4, z, 2, 0.8, 2); }
   b.instanced(new THREE.DodecahedronGeometry(1, 0), std({ map: tex('brick'), color: 0x9a8070, roughness: 0.95, flatShading: true }), rub);
-  const jer = []; for (const [x, z, ry] of mirror([[-3, 3, 0], [8, 8, 0.8]])) { jer.push(M4(x, 0.45, z, ry)); b.world.addCS(x, 0.45, z, 2.4, 0.9, 2.4); }
+  const jer = []; for (const [x, z, ry] of mirror([[-3, 3, 0], [8, 8, 0.8]])) { jer.push(M4(x, 0.45, z, ry)); const c = Math.abs(Math.cos(ry)), sn = Math.abs(Math.sin(ry)); b.world.addCS(x, 0.45, z, 3 * c + 0.6 * sn, 0.9, 3 * sn + 0.6 * c); }
   b.instanced(new THREE.BoxGeometry(3, 0.9, 0.6), concrete, jer);
+  crossTunnel(b, { xo: 2, zE: 24, zC: 4, pillars: [[2.5, 1.5], [-1.5, -1.5]], mat: tint(concrete, 0xb8b4a8), floorMat: tint(concrete, 0x5a5a5a) });   // old subway
   teamSpawns(b, [[-8, 27], [-3, 27.5], [3, 27.5], [8, 27], [0, 25], [-10, 24], [10, 24]]);
-  b.spawns.ffa = V3([[-9, -27], [9, 27], [-27, -9], [27, 9], [0, 0], [-9, 9], [9, -9], [27, -2], [-27, 2], [3, -20], [-3, 20]]);
+  b.spawns.ffa = V3([[-9, -27], [9, 27], [-27, -9], [27, 9], [-1, 7], [-9, 9], [9, -9], [27, -2], [-27, 2], [3, -20], [-3, 20]]);
   PROPS.bus(b, 7, 3, 0.35);
   scatter(b, rng(37), ['car', 'dumpster', 'barrier', 'car'], 9, -12, 12, -27, 27, [[19, 0, 2], [-19, 0, 2]], [0x7a2a20, 0x2a4a6a, 0x5a5a5a, 0xc8c0b0]);
   b.finish();
@@ -502,7 +661,9 @@ function undergroundLab() {
     b.flight(0, z1a - sz * 6, 'z', sz, 2, 0, concrete);               // ground → mezz 1 (lane x ∈ [-1,1]) arriving at the inner edge
     b.flight(6, z2a - sz * 1, 'x', 1, 2, FLOOR, concrete);             // mezz 1 → mezz 2 along the open strip, x 6 → 12
     // glass balustrades along the inner edges (gaps where stairs / the atrium bridge arrive)
-    for (const [ed, y, gaps] of [[z1a, FLOOR, [[-HALF, -24.9], [-23.1, -1.2], [1.2, 23.1], [24.9, HALF]]], [z2a, 2 * FLOOR, [[-HALF, -16.9], [-15.1, -12.2], [-9.8, 5.8], [12.2, 15.1], [16.9, HALF]]]]) for (const [xa, xb] of gaps) {
+    const runs = (opens) => { const out = []; let cur = -HALF; for (const [a, c] of opens.sort((p, q) => p[0] - q[0])) { if (a > cur) out.push([cur, a]); cur = Math.max(cur, c); } if (cur < HALF) out.push([cur, HALF]); return out; };
+    const open1 = [[-24.9, -23.1], [23.1, 24.9], [-1.2, 1.2], sz > 0 ? [2.9, 5.1] : [-5.1, -2.9]];   // cables, stairs, island bridge
+    for (const [ed, y, gaps] of [[z1a, FLOOR, runs(open1)], [z2a, 2 * FLOOR, [[-HALF, -16.9], [-15.1, -12.2], [-9.8, 5.8], [12.2, 15.1], [16.9, HALF]]]]) for (const [xa, xb] of gaps) {
       b.solid((xa + xb) / 2, y, ed + sz * 0.05, xb - xa, 1.0, 0.06, glass, { col: { seeThrough: true } });
       b.solid((xa + xb) / 2, y + 1.0, ed + sz * 0.05, xb - xa, 0.06, 0.1, rail);
     }
@@ -514,8 +675,21 @@ function undergroundLab() {
     const rack = []; for (let i = 0; i < 6; i++) { const x = -26 + i * 2.2, z = zw - sz * 1.2; rack.push(M4(x, FLOOR + 1.1, z)); b.world.addCS(x, FLOOR + 1.1, z, 1.0, 2.2, 1.0); }
     b.instanced(new THREE.BoxGeometry(1, 2.2, 1), std({ color: 0x23272c, metalness: 0.7, roughness: 0.35 }), rack);
   }
-  // high bridge across the atrium at level 2
-  b.bridge(-12, -10, -26, 26, 2 * FLOOR, grate, rail);
+  // high bridge across the atrium at level 2 (opening at z = -1 where the island's upper deck links in)
+  b.bridge(-12, -10, -26, 26, 2 * FLOOR, grate, rail, true, [-1]);
+  // central control island: level 1 deck (3 m) with bridges to both mezzanines, level 2 deck (6 m) linked to the high bridge
+  const post = std({ color: 0x3a4046, metalness: 0.8, roughness: 0.35 });
+  b.slab(-9, 9, -5, 5, FLOOR, grate);
+  for (const [x, z] of [[-8.6, -4.6], [8.6, -4.6], [-8.6, 4.6], [8.6, 4.6], [0, -4.6], [0, 4.6]]) b.solid(x, 0, z, 0.4, FLOOR - 0.25, 0.4, post);
+  b.flight(15, 4, 'x', -1, 2, 0, concrete); b.flight(-15, -4, 'x', 1, 2, 0, concrete);          // ground → island L1 (east / west)
+  b.slab(-3, 3, -3, 3, 2 * FLOOR, grate);
+  for (const [x, z] of [[-2.7, -2.7], [2.7, -2.7], [-2.7, 2.7], [2.7, 2.7]]) b.solid(x, FLOOR, z, 0.4, FLOOR - 0.25, 0.4, post);
+  b.flight(-9, 2, 'x', 1, 2, FLOOR, concrete);                                                    // island L1 → L2
+  b.bridge(-10, -3, -2, 0, 2 * FLOOR, grate, rail);                                               // L2 → high bridge
+  for (const sz of [-1, 1]) { const x0 = sz > 0 ? 3 : -5; b.bridge(x0, x0 + 2, sz > 0 ? 5 : -22, sz > 0 ? 22 : -5, FLOOR, grate, rail); for (const z of [12, 18]) b.solid(x0 + 1, 0, sz * z, 0.35, FLOOR - 0.2, 0.35, post); }
+  // control consoles as cover on the island decks
+  const consoleM = std({ color: 0x2a3036, metalness: 0.6, roughness: 0.4 });
+  for (const [x, z, w, d, y] of [[5, -2, 2.4, 0.9, FLOOR], [-6, -3.8, 0.9, 1.6, FLOOR], [1.5, 0.5, 0.9, 2.2, 2 * FLOOR], [0.5, -2.2, 1.8, 0.8, 2 * FLOOR]]) b.solid(x, y, z, w, 1.0, d, consoleM);
   // atrium floor: containment tanks + glass partitions + tables as cover
   for (const [x, z] of [[-18, 0], [18, 0]]) {
     const base = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.6, 0.5, 24), std({ color: 0x4a5056, metalness: 0.8, roughness: 0.3 })); base.position.set(x, 0.25, z); base.castShadow = base.receiveShadow = true; b.group.add(base);
@@ -524,7 +698,7 @@ function undergroundLab() {
     const cap = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 0.6, 24), base.material); cap.position.set(x, 5.9, z); b.group.add(cap);
     b.world.addCS(x, 3.0, z, 2.8, 6.0, 2.8);
   }
-  for (const [x, z, w, alongX] of [[-6, -4, 8, true], [6, 4, 8, true], [-26, 6, 6, false], [26, -6, 6, false]]) {
+  for (const [x, z, w, alongX] of [[-12, -12, 8, true], [12, 12, 8, true], [-26, 6, 6, false], [26, -6, 6, false]]) {
     b.solid(x, 0, z, alongX ? w : 0.08, 2.8, alongX ? 0.08 : w, glass, { col: { seeThrough: true } });
     b.solid(x, 0, z, alongX ? w : 0.16, 0.5, alongX ? 0.16 : w, std({ color: 0x5a6066, metalness: 0.7, roughness: 0.4 }));
   }
@@ -535,7 +709,7 @@ function undergroundLab() {
   b.instanced(new THREE.BoxGeometry(2.4, 0.06, 0.6), std({ color: 0xffffff, emissive: 0xe8f4ff, emissiveIntensity: 2.2 }), panels, null, false);
   teamSpawns(b, [[-14, 18], [-8, 18], [8, 18], [14, 18], [-20, 18], [20, 18], [-4, 15]]);
   b.spawns.ffa = V3([[-27, -18], [27, 18], [-27, 18], [27, -18], [0, 0], [-12, -6], [12, 6], [0, -16], [0, 16], [-27, 0], [27, 0]]);
-  scatter(b, rng(41), ['pallet', 'hut', 'vending', 'pallet'], 8, -24, 24, -14, 14, [[0, 0, 3]], [0x2a8a6a, 0x3a6aa8]);
+  scatter(b, rng(41), ['pallet', 'hut', 'vending', 'pallet'], 8, -24, 24, -14, 14, [[0, 0, 11], [4, 13, 2.5], [-4, -13, 2.5], [12, 4, 3.5], [-12, -4, 3.5]], [0x2a8a6a, 0x3a6aa8]);
   b.finish();
   const lights = [];
   for (const [x, z, c] of [[-18, 0, 0x40ff90], [18, 0, 0x40ff90], [0, 0, 0xcfe8ff], [0, -24, 0x60ffa0], [0, 24, 0x60ffa0]]) { const l = new THREE.PointLight(c, 22, 20, 1.6); l.position.set(x, CEIL - 0.8, z); lights.push(l); }
@@ -566,15 +740,16 @@ function frostbite() {
   b.bridge(17, 19, 1, 9, 6, deck, post, false); b.bridge(3, 17, 1, 3, 6, deck, post, false);
   const dish = new THREE.Mesh(new THREE.SphereGeometry(2.2, 24, 12, 0, Math.PI * 2, 0, Math.PI / 3), std({ color: 0xf0f4f8, metalness: 0.4, roughness: 0.3, side: THREE.DoubleSide }));
   dish.position.set(0, 12.5, 0); dish.rotation.x = Math.PI * 0.7; dish.castShadow = true; b.group.add(dish);
-  b.solid(0, 10, 0, 0.3, 2.2, 0.3, post, { collide: false });
+  b.solid(0, 10, 0, 0.3, 2.2, 0.3, post); b.world.addCS(0, 12.2, 0, 3.6, 2.4, 3.6);
   // fuel tanks + containers + snow drifts as cover
   for (const [x, z] of mirror([[-6, 18]])) { const t = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 6, 24).rotateZ(Math.PI / 2), std({ color: 0xc8d4dc, metalness: 0.6, roughness: 0.35 })); t.position.set(x, 1.6, z); t.castShadow = true; b.group.add(t); b.world.addCS(x, 1.6, z, 6, 3.2, 3.2); }
   const cmats = []; for (const [x, z, r] of mirror([[12, -20, 0], [-26, 10, 1]])) { cmats.push(M4(x, 1.3, z, r ? Math.PI / 2 : 0)); b.world.addCS(x, 1.3, z, r ? 2.44 : 6.1, 2.6, r ? 6.1 : 2.44); }
   b.instanced(new THREE.BoxGeometry(6.1, 2.6, 2.44), std({ map: tex('container'), roughness: 0.6, metalness: 0.35 }), cmats, [0x2d6cb5, 0xc8352b, 0x2d6cb5, 0xc8352b]);
   boulders(b, mirror([[-9, 6, 1.2, 1], [8, 10, 1.4, 2], [-24, -24, 1.8, 3], [26, -2, 1.5, 4], [-3, -10, 1.0, 5]]), 0xeef4fa, 'sand');
   b.crates(mirror([[6, -6], [7, -7.2]]), std({ map: tex('crate'), color: 0xd0d8e0, roughness: 0.8 }));
+  crossTunnel(b, { xo: 6, zE: 24, mid: true, pillars: [[4, 1.5], [0.5, -1.5]], mat: tint(ice, 0xb8c4d0), floorMat: tint(floorM, 0x6a7078) });   // service tunnel
   teamSpawns(b, [[-10, 27], [-4, 27.5], [2, 27.5], [8, 27], [-14, 25], [14, 26], [0, 25]]);
-  b.spawns.ffa = V3([[-27, -27], [27, 27], [-27, 27], [27, -27], [-8, 0], [8, 0], [0, -14], [0, 14], [-26, -2], [26, 2], [-10, 25], [10, -25]]);
+  b.spawns.ffa = V3([[-27, -27], [27, 27], [-27, 27], [27, -27], [-8, 5], [8, -5], [0, -14], [0, 14], [-26, -2], [26, 2], [-10, 25], [10, -25]]);
   scatter(b, rng(53), ['snowbank', 'pallet', 'snowbank', 'hut'], 9, -16, 16, -20, 20, [[0, 0, 5]]);
   for (const [x, z, h] of [[-27, 6, 8], [-26, 22, 7], [-8, 27.5, 6.5], [24, -4, 8], [27, -22, 7], [12, 27.5, 6], [-14, -27.5, 7.5], [27, 22, 6]]) pine(b, x, z, h);
   b.snowCaps = true;
@@ -602,8 +777,8 @@ function jungleTemple() {
   for (const [x, z] of [[-3, -3], [3, -3], [-3, 3], [3, 3]]) b.solid(x, 3 * FLOOR, z, 0.7, 2.6, 0.7, stone);
   b.solid(0, 3 * FLOOR + 2.6, 0, 7.4, 0.5, 7.4, mossy);
   // ruined side towers with vines
-  b.tower(-23, 0, 10, 8, { wallMat: mossy, floorMat: stone, doors: ['e'], open: ['e'], vines: [['w', 4, 9]], ladders: [['n', 7]], ruined: true });
-  b.tower(23, -2, 10, 10, { wallMat: tint(stone, 0x8a8a70), floorMat: stone, doors: ['w', 's'], open: ['w'], vines: [['e', 4, 6]], ladders: [['s', 3]], floors: 2, winW: 1.0, winGap: 2.0, balconies: [['s', 1, 5, 4]] });
+  b.tower(-23, 0, 10, 8, { crenel: true, wallMat: mossy, floorMat: stone, doors: ['e'], open: ['e'], vines: [['w', 4, 9]], ladders: [['n', 7]], ruined: true });
+  b.tower(23, -2, 10, 10, { crenel: true, wallMat: tint(stone, 0x8a8a70), floorMat: stone, doors: ['w', 's'], open: ['w'], vines: [['e', 4, 6]], ladders: [['s', 3]], floors: 2, winW: 1.0, winGap: 2.0, balconies: [['s', 1, 5, 4]] });
   // broken pillars + low walls + trees
   for (const [x, z, h] of mirror([[-15, -15, 4], [-8, -18, 2.5], [15, -20, 3], [-20, -10, 1.6]])) b.solid(x, 0, z, 1.0, h, 1.0, stone);
   for (const [x, z, w, ax] of mirror([[-16, 16, 5, true], [8, 18, 4, true]])) b.solid(x, 0, z, ax ? w : 0.7, 1.1, ax ? 0.7 : w, stone);
@@ -625,7 +800,7 @@ function neonMarket() {
   const floorM = std({ map: tex('tile'), color: 0x8a8a9a, roughness: 0.5 });
   b.perimeter(wallA, 12);
   const nvar = { '-1,-1': { wallMat: wallA, roof: 21, winW: 1.2, winGap: 2.2, balconies: [['s', 1, 6, 4]] }, '1,-1': { wallMat: tint(wallB, 0x5a6a8a), roof: 22, winW: 2.6, winGap: 3.8, winY0: 0.6, winY1: 2.6 }, '-1,1': { wallMat: tint(wallA, 0x6a4a5a), roof: 23, balconies: [['s', 2, 4, 5]] }, '1,1': { wallMat: wallB, roof: 24, winW: 1.6, winGap: 2.6, balconies: [['s', 1, 8, 4], ['s', 2, 4, 4]] } };
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.tower(sx * 21, sz * 12, 12, 10, { floorMat: floorM, doors: [sz < 0 ? 'n' : 's'], open: [sx < 0 ? 'e' : 'w'], ladders: [[sx < 0 ? 'w' : 'e', 5]], doorsUp: [[sx < 0 ? 'e' : 'w', 5, 2]], ...nvar[`${sx},${sz}`] });
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.tower(sx * 21, sz * 12, 12, 10, { awning: [0xff2ad8, 0x2af0ff, 0xfff02a, 0x7a3aff][(sx + 1) + (sz + 1) / 2], floorMat: floorM, doors: [sz < 0 ? 'n' : 's'], open: [sx < 0 ? 'e' : 'w'], ladders: [[sx < 0 ? 'w' : 'e', 5]], doorsUp: [[sx < 0 ? 'e' : 'w', 5, 2]], ...nvar[`${sx},${sz}`] });
   b.solid(-21, 0, 0.5, 8, 3.6, 3, tint(wallB, 0x4a3a4a), { ts: 3 }); b.ladder(-16.9, 0.5, 3.6, 'z');   // kiosk between the west shophouses
   const deck = std({ map: tex('plate'), color: 0x50505a, metalness: 0.7, roughness: 0.35 });
   const railN = std({ color: 0xff3adf, emissive: 0xff20d0, emissiveIntensity: 1.6 });
@@ -681,6 +856,7 @@ function refinery() {
   b.bridge(-17, 17, -1, 1, 6, deck, yellow, true, [-6, 6]);
   b.bridge(17, 19, -15, 1, 6, deck, yellow, false); b.bridge(-19, -17, -1, 15, 6, deck, yellow, false);
   for (const x of [-10, 0, 10]) { b.solid(x, 0, -1.5, 0.35, 6.4, 0.35, steel); b.solid(x, 0, 1.5, 0.35, 6.4, 0.35, steel); }
+  for (const dz of [-1.6, 1.6]) { const gx = dz > 0 ? -6 : 6; for (const [xa, xb] of [[-17, gx - 1], [gx + 1, 17]]) b.world.addCS((xa + xb) / 2, 5.4, dz * 1.15, xb - xa, 0.9, 0.5); }   // pipe colliders, open at the rung ladders
   for (const dz of [-1.6, 1.6]) for (const dy of [5.2, 5.6]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 34, 12).rotateZ(Math.PI / 2), dz < 0 ? steel : yellow); p.position.set(0, dy, dz * 1.15); p.castShadow = true; b.group.add(p); }
   b.ladder(-6, 1.15, 6, 'x', 0, 'rungs'); b.ladder(6, -1.15, 6, 'x', 0, 'rungs');
   // ground clutter: pipe stacks, barrels, crates
@@ -706,10 +882,37 @@ export function buildMap(id, { nav: withNav = true } = {}) {
     if (b.groundMesh) b.world.terrain.displace(b.groundMesh.geometry);
     for (const p of sp) p.y = b.world.terrain.at(p.x, p.z);
   }
+  if (b.world.pits && b.groundMesh) cutGround(b.groundMesh.geometry, b.world);
   if (env.mountains) mountainRing(b.group, { bounds: b.world.bounds ?? 30, ...env.mountains });
   if (b.snowCaps) snowCaps(b);
   const nav = withNav ? buildNav(b.world) : null;
   return { id, group: b.group, world: b.world, spawns: b.spawns, nav, env, info: MAPS[id] };
+}
+
+// remove ground-plane triangles over open stairwells so the tunnels are visible from above
+function cutGround(geo, world) {
+  const p = geo.attributes.position, idx = geo.index.array, keep = [];
+  for (let i = 0; i < idx.length; i += 3) {
+    const a = idx[i], b = idx[i + 1], c = idx[i + 2];
+    const x = (p.getX(a) + p.getX(b) + p.getX(c)) / 3, z = (p.getZ(a) + p.getZ(b) + p.getZ(c)) / 3;
+    if (world.pitAt(x, z) !== 'o') keep.push(a, b, c);
+  }
+  geo.setIndex(keep);
+}
+// Static sanity check (tests): props / colliders poking into an open stairwell, spawns inside tunnels.
+export function mapIssues(map) {
+  const w = map.world, out = [];
+  for (const [x, z] of w.pits?.open || []) for (const bx of w.query(x, z, x + 1, z + 1)) {
+    if (bx.min[1] < -0.5 || bx.noCollide || bx.tunnel) continue;
+    if (bx.max[0] > x + 0.05 && bx.min[0] < x + 0.95 && bx.max[2] > z + 0.05 && bx.min[2] < z + 0.95 && bx.min[1] < 3) out.push(`box ${bx.min.map((v) => v.toFixed(1))}..${bx.max.map((v) => v.toFixed(1))} in stairwell ${x},${z}`);
+  }
+  for (const p of [...map.spawns.red, ...map.spawns.blue, ...map.spawns.ffa]) if (w.pits && w.pitAt(p.x, p.z)) out.push(`spawn ${p.x},${p.z} in tunnel`);
+  for (const bb of w.boxes) if (bb.bay) for (const o of w.query(bb.min[0], bb.min[2], bb.max[0], bb.max[2])) {
+    if (o === bb || o.noCollide) continue; const ov = (i) => Math.min(bb.max[i], o.max[i]) - Math.max(bb.min[i], o.min[i]);
+    if (ov(0) > 0.06 && ov(1) > 0.06 && ov(2) > 0.06) out.push(`bay ${bb.min.map((v) => v.toFixed(1))} hits ${o.min.map((v) => v.toFixed(1))}..${o.max.map((v) => v.toFixed(1))}`);
+  }
+  for (const p of [...map.spawns.red, ...map.spawns.blue, ...map.spawns.ffa]) for (const bb of w.query(p.x - 0.5, p.z - 0.5, p.x + 0.5, p.z + 0.5)) if (bb.bay && p.x > bb.min[0] - 0.5 && p.x < bb.max[0] + 0.5 && p.z > bb.min[2] - 0.5 && p.z < bb.max[2] + 0.5) out.push(`spawn ${p.x},${p.z} in bay`);
+  return [...new Set(out)];
 }
 
 // ───────── Layered navigation ─────────
