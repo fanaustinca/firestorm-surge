@@ -97,6 +97,7 @@ class Sfx {
       case 'bow': this._tone(g, t, 0.12, 300, 90, 'triangle', 0.4); this._noise(g, t, 0.08, 2000, 800, 2, 'bandpass', 0.25); break;
       case 'throw': this._noise(g, t, 0.18, 600, 2400, 3, 'bandpass', 0.35); break;
       case 'taser': this._noise(g, t, 0.35, 6000, 3000, 4, 'bandpass', 0.6); this._tone(g, t, 0.35, 90, 90, 'sawtooth', 0.25); break;
+      case 'cryo': this._noise(g, t, 0.14, 5200, 2600, 0.6, 'highpass', 0.32); break;
       case 'flame': this._noise(g, t, 0.14, 700, 400, 0.5, 'lowpass', 0.5); break;
       default: this._noise(g, t, 0.2, 2500, 300, 0.7, 'bandpass', 1);
     }

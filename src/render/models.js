@@ -55,6 +55,14 @@ export function projectileMesh(kind) {
       case 'slipper': g.add(slipperMesh(m)); break;
       case 'mine': g.add(buildItem('land_mine')); break;
       case 'taser': P(g, cylZ(0.006, 0.006, 0.03, 6), m.glowBlue); break;
+      case 'disc': {
+        P(g, cylY(0.13, 0.13, 0.014, 32), new THREE.MeshStandardMaterial({ color: 0xc8d0d8, metalness: 1, roughness: 0.2 }));
+        for (let i = 0; i < 16; i++) { const a = (i / 16) * Math.PI * 2; P(g, new THREE.ConeGeometry(0.018, 0.045, 3).rotateZ(-Math.PI / 2), m.steel, Math.cos(a) * 0.145, 0, Math.sin(a) * 0.145, 0, -a, 0); }
+        P(g, cylY(0.04, 0.04, 0.02, 16), m.orange); break;
+      }
+      case 'harpoon': P(g, cylZ(0.012, 0.012, 0.7, 8), m.steel, 0, 0, 0.1); P(g, new THREE.ConeGeometry(0.035, 0.14, 4).rotateX(-Math.PI / 2), m.steel, 0, 0, -0.3); for (const sx of [-1, 1]) P(g, rbox(0.006, 0.01, 0.08, 0.002), m.steel, sx * 0.03, 0, -0.2); break;
+      case 'concussion': g.add(buildItem('shockwave_grenade')); break;
+      case 'singularity': g.add(buildItem('black_hole')); break;
       default: { const item = buildItem({ frag: 'frag', smoke: 'smoke_grenade', molotov: 'molotov', flash: 'flashbang', sticky: 'sticky_bomb' }[kind] || 'frag'); g.add(item); }
     }
     shadowAll(g);

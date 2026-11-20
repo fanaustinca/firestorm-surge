@@ -249,7 +249,7 @@ export class Game {
     if (!practice) {
       coins = 10;
       if (info.head) { coins += 5; tags.push('HEADSHOT'); }
-      if (w.slot === 4) { coins += 10; tags.push({ land_mine: 'MINE KILL', frag: 'GRENADE KILL', molotov: 'MOLOTOV KILL', sticky_bomb: 'STICKY KILL', flashbang: 'FLASH KILL', smoke_grenade: 'SMOKE KILL' }[w.id] || 'THROWABLE KILL'); }
+      if (w.kind === 'throwable') { coins += 10; tags.push({ land_mine: 'MINE KILL', frag: 'GRENADE KILL', molotov: 'MOLOTOV KILL', sticky_bomb: 'STICKY KILL', flashbang: 'FLASH KILL', smoke_grenade: 'SMOKE KILL' }[w.id] || 'THROWABLE KILL'); }
       else if (info.explosive || w.splash) { coins += 5; tags.push('EXPLOSIVE'); }
       if (info.melee) { coins += 5; tags.push('MELEE'); }
       if (info.emotional) tags.push('EMOTIONAL DAMAGE');
@@ -259,12 +259,25 @@ export class Game {
     this.hud.killBanner(victim.name, info.weapon, coins, tags.join(' · '));
   }
   blind(t, time) { if (!this.owns(t)) { this.net.event({ t: 'blind', target: t.id, time }); return; } t.fx.flash = Math.max(t.fx.flash, time); if (t === this.player) { this.hud.flash(time); sfx.ring(time); } }
+  // velocity impulse (knockback / harpoon reel) — applied by whoever simulates that actor
+  push(t, v, airborne = false) {
+    if (!t || !t.alive) return;
+    if (!this.owns(t)) { this.net.event({ t: 'push', target: t.id, v: v.toArray().map((x) => +x.toFixed(2)), air: airborne }); return; }
+    t.vel.add(v); if (airborne || v.y > 2) t.onGround = false;
+  }
+  // cryo: slow while sprayed, freeze solid (stun) after sustained exposure
+  chill(t, cfg, dt) {
+    if (!this.owns(t)) { this.net.event({ t: 'chill', target: t.id, c: cfg, dt }); return; }
+    const fx = t.fx; fx.chill = Math.max(fx.chill || 0, cfg.time); fx.chillSlow = cfg.slow; fx.frost = (fx.frost || 0) + dt; fx.frostIdle = 0;
+    if (fx.frost >= cfg.freeze) { fx.frost = 0; this.stun(t, cfg.freezeTime); fx.frozen = cfg.freezeTime; if (t === this.player) this.hud.toast('FROZEN!', 'warn'); }
+  }
   stun(t, time) { if (!this.owns(t)) { this.net.event({ t: 'stun', target: t.id, time }); return; } t.fx.stun = Math.max(t.fx.stun, time); if (t.ws) { t.ws.reloading = 0; t.ws.cook = -1; } }
 
   updateStatus(a, dt) {
     const fx = a.fx;
     if (a.spawnProtect > 0) a.spawnProtect -= dt;
     if (fx.stun > 0) fx.stun -= dt;
+    if (fx.chill > 0) fx.chill -= dt; if (fx.frozen > 0) fx.frozen -= dt; if (fx.frost > 0 && (fx.frostIdle = (fx.frostIdle || 0) + dt) > 0.35) fx.frost = Math.max(0, fx.frost - dt * 0.8);   // thaws once the spray stops
     if (fx.flash > 0) fx.flash -= dt;
     if (fx.scythe > 0) fx.scythe -= dt;
     if (fx.adrenaline > 0) { fx.adrenaline -= dt; if (a.alive) a.hp = Math.min(BASE_HP, a.hp + 10 * dt); }
@@ -300,7 +313,7 @@ export class Game {
   onProjectile(owner, p) { if (this.owns(owner) && this.net.connected) this.net.event({ t: 'proj', id: p.id, a: owner.id, w: p.def.id, k: p.kind, p: p.pos.toArray(), v: p.vel.toArray(), f: p.fuse }); }
   onWorldEvent(type, d) {
     if (!this.net.connected) return;
-    if (type === 'boom' || type === 'smoke' || type === 'flash' || type === 'fire' || type === 'ring' || type === 'arc' || type === 'barricade' || type === 'barricade_down') this.net.event({ t: 'w:' + type, ...d });
+    if (type === 'boom' || type === 'smoke' || type === 'flash' || type === 'fire' || type === 'ring' || type === 'arc' || type === 'shock' || type === 'vortex' || type === 'barricade' || type === 'barricade_down') this.net.event({ t: 'w:' + type, ...d });
   }
   shakeFrom(pos, radius) { const d = pos.distanceTo(this.camera.position); this.shake = Math.max(this.shake, Math.max(0, 1 - d / (radius * 5)) * 0.5); }
 
@@ -325,7 +338,11 @@ export class Game {
     const A = (id) => this.actors.find((x) => x.id === id);
     switch (e.t) {
       case 'shot': { const a = A(e.a); const d = WEAPON_BY_ID[e.w]; if (!a || !d) return; const o = new THREE.Vector3(...e.o); const muzzle = this.muzzleWorld(a, V()); for (const dir of e.d) this.combat.addBullet(a, d, o, new THREE.Vector3(...dir), muzzle, true); a.lastShotT = this.time; this.effects.muzzle(muzzle, new THREE.Vector3(...e.d[0]), 1); sfx.shot({ assault_rifle: 'rifle', ak47: 'rifle', lmg: 'rifle', burst_rifle: 'rifle', heavy_sniper: 'heavy', dmr: 'heavy', revolver: 'heavy', smg: 'smg', sawed_off: 'shotgun', tactical_shotgun: 'shotgun' }[e.w] || 'pistol', a.chest(V())); break; }
-      case 'fx': { const a = A(e.a); if (!a) return; a.lastShotT = this.time; if (e.w === 'flamethrower') for (let i = 0; i < 4; i++) this.effects.flame(this.muzzleWorld(a, V()), a.aimDir(V()).multiplyScalar(16)); break; }
+      case 'fx': { const a = A(e.a); if (!a) return; a.lastShotT = this.time; const fd = WEAPON_BY_ID[e.w]; if (fd?.kind === 'flame') for (let i = 0; i < 4; i++) this.effects.flame(this.muzzleWorld(a, V()), a.aimDir(V()).multiplyScalar(16), 1, !!fd.cryo); break; }
+      case 'push': { const t = A(e.target); if (t && this.owns(t)) this.push(t, new THREE.Vector3(...e.v), e.air); break; }
+      case 'chill': { const t = A(e.target); if (t && this.owns(t) && t.alive) this.chill(t, e.c, e.dt); break; }
+      case 'w:shock': { const p = new THREE.Vector3(...e.pos); this.effects.shockwave(p, e.r); sfx.explosion(p, 0.7); this.shakeFrom(p, e.r * 0.7); const pr = this.combat.projs.find((q) => q.id === e.id); if (pr) { this.scene.remove(pr.mesh); this.combat.projs.splice(this.combat.projs.indexOf(pr), 1); } break; }
+      case 'w:vortex': { this.combat.makeVortex(new THREE.Vector3(...e.pos), WEAPON_BY_ID.black_hole.vortex, A(e.owner), { id: e.id }); const pr = this.combat.projs.find((q) => q.id === e.id); if (pr) { this.scene.remove(pr.mesh); this.combat.projs.splice(this.combat.projs.indexOf(pr), 1); } break; }
       case 'proj': { const a = A(e.a); const d = WEAPON_BY_ID[e.w]; if (!a || !d) return; const pr = this.combat.spawnProj(a, d, e.k, new THREE.Vector3(...e.p), new THREE.Vector3(...e.v), { id: e.id, fuse: e.f, remote: true }); if (d.projScale) pr.mesh.scale.setScalar(d.projScale); break; }
       case 'w:boom': { const p = new THREE.Vector3(...e.pos); this.effects.explosion(p, e.r); sfx.explosion(p, e.r / 4.5); this.shakeFrom(p, e.r); const pr = this.combat.projs.find((q) => q.id === e.id); if (pr) { this.scene.remove(pr.mesh); this.combat.projs.splice(this.combat.projs.indexOf(pr), 1); } break; }
       case 'w:smoke': this.combat.makeSmoke(new THREE.Vector3(...e.pos), WEAPON_BY_ID.smoke_grenade.smoke); break;
@@ -595,7 +612,7 @@ export class Game {
     if (MELEE.includes(id)) item.rotation.set(0, 0, -Math.PI / 2 + 0.12);
     if (id === 'slippers') item.rotation.set(0.9, 0.5, 0);
     if (id === 'fists' || id === 'tactical_gloves') item.rotation.set(0.2, Math.PI * 0.85, 0);
-    if (['blast_vest', 'thermal_goggles', 'spring_boots', 'medkit', 'ammo_pack', 'barricade', 'bandolier'].includes(id)) item.rotation.y = Math.PI * 0.85;
+    if (['blast_vest', 'thermal_goggles', 'spring_boots', 'medkit', 'ammo_pack', 'barricade', 'bandolier', 'shockwave_grenade', 'black_hole'].includes(id)) item.rotation.y = Math.PI * 0.85;
     st.holder.add(g);
     const box = new THREE.Box3().setFromObject(g); const size = box.getSize(V()); const c = box.getCenter(V());
     g.position.set(-c.x, -box.min.y + 0.05 + Math.max(0, 0.3 - size.y) * 0.5, -c.z);

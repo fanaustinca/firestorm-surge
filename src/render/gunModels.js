@@ -533,24 +533,58 @@ function arc_caster(m) {
   marker(g, 'muzzle', 0, 0.04, -0.56); marker(g, 'foregrip', 0, -0.02, -0.28); marker(g, 'sight', 0, 0.09, 0.1);
   return g;
 }
-function drum_breaker(m) {
+function ricochet_disc(m) {
   const g = new THREE.Group();
-  P(g, rbox(0.06, 0.08, 0.3, 0.01), m.olive, 0, 0.035, -0.08);
-  P(g, cylZ(0.022, 0.022, 0.36, 18), m.gunmetal, 0, 0.05, -0.4);
-  P(g, rbox(0.062, 0.05, 0.22, 0.008), m.polymer, 0, 0.02, -0.33);                        // handguard
-  for (let i = 0; i < 5; i++) for (const sx of [-1, 1]) P(g, box(0.002, 0.02, 0.014), m.darksteel, sx * 0.032, 0.025, -0.25 - i * 0.035);
-  P(g, cylZ(0.03, 0.026, 0.06, 18), m.darksteel, 0, 0.05, -0.6);                           // choke
-  for (let i = 0; i < 6; i++) P(g, box(0.004, 0.02, 0.03), m.polymer, Math.cos(i) * 0.03, 0.05 + Math.sin(i) * 0.03, -0.6, 0, 0, i);
-  const mag = new THREE.Group(); mag.name = 'mag'; mag.position.set(0, -0.08, -0.12); g.add(mag);
-  P(mag, cylX(0.085, 0.085, 0.07, 28), m.gunmetal); P(mag, cylX(0.05, 0.05, 0.074, 20), m.darksteel);
-  for (let i = 0; i < 8; i++) { const a = (i / 8) * PI * 2; P(mag, cylX(0.012, 0.012, 0.076, 10), m.red, 0, Math.cos(a) * 0.07, Math.sin(a) * 0.07); }
-  P(g, cylY(0.016, 0.018, 0.08, 12), m.polymer, 0, -0.03, -0.36);                         // vertical foregrip
-  pistolGrip(g, m, m.polymer, 0.04); triggerGroup(g, m, -0.0);
+  P(g, rbox(0.07, 0.085, 0.3, 0.012), m.gunmetal, 0, 0.03, -0.1);                          // receiver
+  P(g, rbox(0.11, 0.022, 0.3, 0.006), m.darksteel, 0, 0.0, -0.32);                          // flat launch rails (disc slot)
+  P(g, rbox(0.11, 0.022, 0.3, 0.006), m.darksteel, 0, 0.065, -0.32);
+  for (const sx of [-1, 1]) P(g, rbox(0.012, 0.06, 0.08, 0.003), m.orange, sx * 0.058, 0.033, -0.21);   // rear guards only: the blade shows
+  const disc = new THREE.Group(); disc.name = 'disc'; disc.position.set(0, 0.033, -0.36); g.add(disc);   // loaded saw blade
+  P(disc, cylY(0.068, 0.068, 0.008, 32), m.steel);
+  for (let i = 0; i < 14; i++) { const a = (i / 14) * PI * 2; P(disc, new THREE.ConeGeometry(0.009, 0.024, 3).rotateZ(-PI / 2), m.steel, Math.cos(a) * 0.076, 0, Math.sin(a) * 0.076, 0, -a, 0); }
+  P(disc, cylY(0.016, 0.016, 0.012, 14), m.orange);
+  const mag = new THREE.Group(); mag.name = 'mag'; mag.position.set(0, 0.11, -0.04); g.add(mag);   // top-loading disc stack
+  for (let i = 0; i < 5; i++) P(mag, cylY(0.045, 0.045, 0.007, 24), i % 2 ? m.steel : m.darksteel, 0, i * 0.009, 0);
+  P(mag, rbox(0.1, 0.012, 0.1, 0.004), m.gunmetal, 0, 0.05, 0);
+  pistolGrip(g, m, m.polymer, 0.06); triggerGroup(g, m, 0.02);
+  stockAR(g, m);
+  P(g, cylY(0.016, 0.018, 0.08, 12), m.polymer, 0, -0.04, -0.28);
+  marker(g, 'muzzle', 0, 0.033, -0.5); marker(g, 'foregrip', 0, -0.08, -0.28); marker(g, 'sight', 0, 0.2, 0.1);
+  return g;
+}
+function cryo_sprayer(m) {
+  const g = new THREE.Group();
+  const frost = std({ color: 0xdff4ff, metalness: 0.3, roughness: 0.25 }); const ice = std({ color: 0x8fdcff, emissive: 0x2a90c8, emissiveIntensity: 0.9, roughness: 0.2 });
+  P(g, rbox(0.06, 0.08, 0.28, 0.012), frost, 0, 0.03, -0.06);
+  P(g, cylZ(0.028, 0.024, 0.3, 18), m.gunmetal, 0, 0.04, -0.33);
+  for (let i = 0; i < 6; i++) P(g, torus(0.03, 0.005, 16), frost, 0, 0.04, -0.22 - i * 0.04);          // cooling fins
+  P(g, cylZ(0.04, 0.03, 0.06, 18), m.darksteel, 0, 0.04, -0.5); P(g, torus(0.034, 0.006, 18), ice, 0, 0.04, -0.53);
+  const mag = new THREE.Group(); mag.name = 'mag'; mag.position.set(0, -0.06, -0.12); g.add(mag);   // coolant canister
+  P(mag, cylZ(0.042, 0.042, 0.2, 20), frost); P(mag, cylZ(0.03, 0.03, 0.205, 20), ice);
+  P(mag, cylZ(0.044, 0.044, 0.02, 20), m.darksteel, 0, 0, 0.09); P(mag, cylZ(0.044, 0.044, 0.02, 20), m.darksteel, 0, 0, -0.09);
+  P(g, tube([[0, -0.06, -0.02], [0, 0.0, -0.03], [0, 0.03, -0.12]], 0.007), m.rubber);
+  pistolGrip(g, m, m.polymer, 0.08); triggerGroup(g, m, 0.04);
+  P(g, cylY(0.016, 0.018, 0.08, 12), m.polymer, 0, -0.03, -0.32);
+  P(g, rbox(0.02, 0.02, 0.05, 0.004), m.darksteel, 0, 0.085, 0.0);
+  marker(g, 'muzzle', 0, 0.04, -0.55); marker(g, 'foregrip', 0, -0.07, -0.32); marker(g, 'sight', 0, 0.095, 0.1);
+  return g;
+}
+function harpoon_gun(m) {
+  const g = new THREE.Group();
+  P(g, rbox(0.06, 0.08, 0.3, 0.012), m.olive, 0, 0.02, -0.08);
+  P(g, cylZ(0.024, 0.024, 0.5, 16), m.gunmetal, 0, 0.045, -0.38);                            // launch tube
+  for (const z of [-0.2, -0.42, -0.6]) P(g, torus(0.028, 0.006, 14), m.darksteel, 0, 0.045, z);
+  const spear = new THREE.Group(); spear.name = 'spear'; spear.position.set(0, 0.045, -0.66); g.add(spear);
+  P(spear, cylZ(0.006, 0.006, 0.14, 8), m.steel, 0, 0, 0.04);
+  P(spear, new THREE.ConeGeometry(0.018, 0.07, 4).rotateX(-PI / 2), m.steel, 0, 0, -0.06);
+  for (const sx of [-1, 1]) P(spear, rbox(0.004, 0.006, 0.04, 0.001), m.steel, sx * 0.014, 0, -0.02, 0, sx * 0.5, 0);    // barbs
+  const reel = new THREE.Group(); reel.name = 'mag'; reel.position.set(0, -0.045, -0.24); g.add(reel);   // rope reel
+  P(reel, cylX(0.04, 0.04, 0.05, 20), std({ color: 0xc8b078, roughness: 0.9 })); P(reel, cylX(0.045, 0.045, 0.006, 20), m.darksteel, 0.026); P(reel, cylX(0.045, 0.045, 0.006, 20), m.darksteel, -0.026);
+  P(g, tube([[0, -0.01, -0.26], [0, 0.02, -0.45], [0, 0.04, -0.62]], 0.0025), std({ color: 0xc8b078, roughness: 0.9 }));
+  pistolGrip(g, m, m.polymer, 0.06); triggerGroup(g, m, 0.02);
   stockAR(g, m, m.olive);
-  P(g, torus(0.014, 0.003, 16), m.darksteel, 0, 0.096, 0.03);                              // ghost ring
-  P(g, rbox(0.012, 0.012, 0.02, 0.003), m.darksteel, 0, 0.083, 0.03);
-  P(g, box(0.004, 0.026, 0.006), m.darksteel, 0, 0.085, -0.56); P(g, sphere(0.003, 8, 6), m.orange, 0, 0.098, -0.56);
-  marker(g, 'muzzle', 0, 0.05, -0.64); marker(g, 'foregrip', 0, -0.07, -0.36); marker(g, 'sight', 0, 0.096, 0.12);
+  P(g, torus(0.014, 0.003, 16), m.darksteel, 0, 0.09, 0.02);
+  marker(g, 'muzzle', 0, 0.045, -0.72); marker(g, 'foregrip', 0, -0.06, -0.3); marker(g, 'sight', 0, 0.09, 0.12);
   return g;
 }
 function pocket_rocket(m) {
@@ -573,5 +607,5 @@ function pocket_rocket(m) {
 export const GUN_BUILDERS = {
   assault_rifle, ak47, dmr, rocket_launcher, burst_rifle, lmg, heavy_sniper, flamethrower, grenade_launcher, mortar,
   pistol, smg, crossbow, burst_pistol, revolver, sawed_off, tactical_shotgun, taser,
-  volt_rail, arc_caster, drum_breaker, pocket_rocket,
+  volt_rail, arc_caster, ricochet_disc, cryo_sprayer, harpoon_gun, pocket_rocket,
 };

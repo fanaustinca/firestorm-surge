@@ -16,9 +16,10 @@ const UP = new THREE.Vector3(0, 1, 0);
 const SHOT_SOUND = {
   assault_rifle: 'rifle', ak47: 'rifle', burst_rifle: 'rifle', lmg: 'rifle', dmr: 'heavy', heavy_sniper: 'heavy',
   pistol: 'pistol', burst_pistol: 'pistol', revolver: 'heavy', smg: 'smg', sawed_off: 'shotgun', tactical_shotgun: 'shotgun',
-  rocket_launcher: 'launcher', grenade_launcher: 'launcher', mortar: 'mortar', volt_rail: 'heavy', arc_caster: 'smg', drum_breaker: 'shotgun', pocket_rocket: 'launcher', crossbow: 'bow', shurikens: 'throw', slippers: 'throw',
+  rocket_launcher: 'launcher', grenade_launcher: 'launcher', mortar: 'mortar', volt_rail: 'heavy', arc_caster: 'smg', ricochet_disc: 'launcher', harpoon_gun: 'bow', pocket_rocket: 'launcher', crossbow: 'bow', shurikens: 'throw', slippers: 'throw',
 };
 const TRACER_COLOR = { heavy_sniper: 0xff9a50, dmr: 0xffb070, lmg: 0xffd070, taser: 0x80e0ff, volt_rail: 0x40f0ff, arc_caster: 0xb48cff };
+const _pull = new THREE.Vector3();
 
 const bid = (d) => d.base || d.id;
 
@@ -35,7 +36,8 @@ export class Combat {
   reset() {
     for (const p of this.projs || []) if (p.mesh) this.g.scene.remove(p.mesh);
     for (const b of this.barricades || []) this.removeBarricade(b, true);
-    this.bullets = []; this.projs = []; this.clouds = []; this.fires = []; this.barricades = []; this.seq = 1; this.shotCount = 0;
+    for (const v of this.vortices || []) this.g.effects?.vortexEnd(v);
+    this.bullets = []; this.projs = []; this.clouds = []; this.fires = []; this.barricades = []; this.vortices = []; this.seq = 1; this.shotCount = 0;
   }
   get world() { return this.g.map.world; }
   enemiesOf(a) { return this.g.actors.filter((t) => t !== a && t.alive && this.g.hostile(a, t)); }
@@ -144,6 +146,7 @@ export class Combat {
       if (kind === 'slipper' || kind === 'shuriken') vel.multiplyScalar(1 + (a.mods.throw || 0) * 0.5);
       const pr = this.spawnProj(a, d, kind, eye.clone().addScaledVector(aim, 0.4), vel, { visFrom: muzzle });
       if (d.projScale) pr.mesh.scale.setScalar(d.projScale);
+      if (d.twinDisc) { const side = V(-aim.z, 0, aim.x).normalize(); for (const sg of [-1, 1]) { const v2 = vel.clone().addScaledVector(side, sg * speed * 0.05); if (sg > 0) pr.vel.copy(v2); else this.spawnProj(a, d, kind, eye.clone().addScaledVector(aim, 0.4), v2, { visFrom: muzzle }); } }
       if (d.cooldown && d.kind === 'projectile') ws.recharge = d.cooldown;
     } else {
       const n = d.pellets || 1;
@@ -248,7 +251,7 @@ export class Combat {
   // ═════════════════ projectiles ═════════════════
   spawnProj(owner, def, kind, pos, vel, opts = {}) {
     const p = { id: opts.id || `${owner.id}:${this.seq++}`, kind, def, owner, pos: pos.clone(), vel: vel.clone(), t: 0, fuse: opts.fuse ?? def.fuse ?? 99, remote: !!opts.remote, stuck: null, bounces: 0, target: opts.target || null };
-    p.grav = { rocket: 0, bolt: -4, shuriken: -3, slipper: -12, gl_shell: -15, mortar_shell: -20 }[kind] ?? -20;
+    p.grav = { rocket: 0, disc: 0, harpoon: -3, bolt: -4, shuriken: -3, slipper: -12, gl_shell: -15, mortar_shell: -20 }[kind] ?? -20;
     p.mesh = projectileMesh(kind);
     p.mesh.position.copy(opts.visFrom || pos);
     p.visOff = opts.visFrom ? opts.visFrom.clone().sub(pos) : V();
@@ -274,7 +277,7 @@ export class Combat {
         if (step > 1e-6) {
           const dir = _a.copy(p.vel).divideScalar(spd);
           const wh = world.raycast(p.pos, dir, step + 0.05);
-          const ah = (p.remote || p.spent) ? null : this.rayActors(p.pos, dir, wh ? wh.t : step, p.owner, { bodyR: 0.42, headR: 0.2 });
+          const ah = (p.remote || p.spent) ? null : this.rayActors(p.pos, dir, wh ? wh.t : step, p.owner, { bodyR: 0.42, headR: 0.2, skip: p.hits });
           if (ah && !(p.kind === 'gl_shell' && p.t < 0.05)) {
             const hitPos = p.pos.clone().addScaledVector(dir, ah.t);
             remove = this.projHitActor(p, ah.actor, ah.head, hitPos, dir.clone());
@@ -307,8 +310,8 @@ export class Combat {
       const k = Math.max(0, 1 - p.t / 0.15);
       p.mesh.position.copy(p.pos).addScaledVector(p.visOff, k);
       if (!p.stuck && !p.landed) {
-        if (['rocket', 'bolt', 'mortar_shell', 'gl_shell'].includes(p.kind) && p.vel.lengthSq() > 1) p.mesh.quaternion.setFromUnitVectors(_b.set(0, 0, -1), _c.copy(p.vel).normalize());
-        else if (p.kind === 'shuriken') p.mesh.rotation.y += dt * 30;
+        if (['rocket', 'bolt', 'harpoon', 'mortar_shell', 'gl_shell'].includes(p.kind) && p.vel.lengthSq() > 1) p.mesh.quaternion.setFromUnitVectors(_b.set(0, 0, -1), _c.copy(p.vel).normalize());
+        else if (p.kind === 'shuriken' || p.kind === 'disc') p.mesh.rotation.y += dt * 30;
         else if (p.kind === 'slipper') { p.mesh.rotation.x += dt * 14; p.mesh.rotation.y += dt * 3; }
         else { p.mesh.rotation.x += dt * 8; p.mesh.rotation.z += dt * 5; }
       }
@@ -321,6 +324,20 @@ export class Combat {
     switch (p.kind) {
       case 'rocket': case 'gl_shell': if (p.remote) return true; this.g.damage(t, d.dmg, { attacker: p.owner, weapon: d.id, head: false, pos, explosive: true, direct: true }); this.explode(p, pos, t); return true;
       case 'mortar_shell': if (p.remote) return true; this.explode(p, pos, null); return true;
+      case 'disc':     // slices through: damage each actor once, keep flying
+        (p.hits ||= new Set()).add(t);
+        if (!p.remote) this.g.damage(t, head ? d.head : d.dmg, { attacker: p.owner, weapon: d.id, head, pos, dir });
+        this.g.effects.blood(pos); sfx.slap(pos); return false;
+      case 'harpoon':
+        if (!p.remote) {
+          this.g.damage(t, head ? d.head : d.dmg, { attacker: p.owner, weapon: d.id, head, pos, dir });
+          if (t.alive && p.owner.alive) {   // reel them in: a hop that lands them ~1.5 m in front of the shooter
+            const to = _pull.subVectors(p.owner.pos, t.pos); const dist = Math.hypot(to.x, to.z); const flight = 0.62;
+            const hs = Math.min(24, Math.max(0, dist - 1.5) / flight); to.setY(0).normalize();
+            this.g.push(t, V(to.x * hs, 6.2 + (p.owner.pos.y - t.pos.y) / flight * 0.5, to.z * hs), true);
+          }
+        }
+        this.g.effects.blood(pos); this.g.effects.tether(this.g.muzzleWorld(p.owner, V()), pos, 0.5, 0x8a8f96, 0.012); return true;
       case 'bolt': case 'shuriken': case 'slipper':
         if (!p.remote) {
           this.g.damage(t, head ? d.head : d.dmg, { attacker: p.owner, weapon: d.id, head, pos, dir, emotional: d.emotional });
@@ -340,7 +357,12 @@ export class Combat {
       case 'rocket': case 'mortar_shell':
         if (box?.kind === 'ceiling') { this.g.effects.sparks(pos, n, 14); return true; }
         if (!p.remote) this.explode(p, pos, null); return true;
-      case 'gl_shell': case 'frag': case 'smoke': case 'flash': {
+      case 'disc': {
+        if (box?.kind === 'ceiling' || p.bounces >= (p.def.ricochet ?? 3)) { this.g.effects.sparks(pos, n, 10); sfx.thud(pos); return true; }
+        p.pos.copy(pos); p.vel.addScaledVector(n, -2 * p.vel.dot(n)); p.bounces++; p.hits = null;   // ricochet: may slice the same enemy again
+        this.g.effects.sparks(pos, n, 8); sfx.thud(pos); return false;
+      }
+      case 'gl_shell': case 'frag': case 'smoke': case 'flash': case 'concussion': case 'singularity': {
         p.pos.copy(pos); const vn = p.vel.dot(n); p.vel.addScaledVector(n, -vn * 1.45); p.vel.multiplyScalar(0.55); p.bounces++;
         if (p.vel.length() < 1.2 && n.y > 0.6) { p.vel.set(0, 0, 0); p.landed = true; p.mesh.position.copy(pos); }
         if (p.bounces < 4) sfx.thud(pos);
@@ -364,6 +386,8 @@ export class Combat {
   detonate(p) {
     switch (p.kind) {
       case 'frag': case 'gl_shell': case 'sticky': this.explode(p, p.pos, null); return true;
+      case 'concussion': this.shockwave(p); return true;
+      case 'singularity': { const v = this.makeVortex(p.pos.clone(), p.def.vortex, p.owner); this.g.onWorldEvent?.('vortex', { pos: v.pos.toArray(), owner: p.owner.id, id: p.id }); return true; }
       case 'smoke': this.makeSmoke(p.pos.clone(), p.def.smoke); this.g.onWorldEvent?.('smoke', { pos: p.pos.toArray() }); return true;
       case 'flash': this.flashbang(p); return true;
       case 'bolt': case 'shuriken': return true;
@@ -406,11 +430,34 @@ export class Combat {
       if (t === p.owner) dmg *= 0.5;
       this.g.damage(t, dmg, { attacker: p.owner, weapon: d.id, pos, explosive: true });
       const kb = (d.knockback || 5) * f; const dir = _c.subVectors(t.pos, pos).setY(0).normalize();
-      t.vel.addScaledVector(dir, kb); t.vel.y += kb * 0.5;
+      this.g.push(t, V(dir.x * kb, kb * 0.5, dir.z * kb));
     }
     for (const b of [...this.barricades]) if (b.center.distanceTo(pos) < sp.radius + 1) this.damageBarricade(b, sp.max * 1.5);
   }
 
+  // Shockwave grenade: no damage, a big radial throw (the thrower included — rocket-jump style)
+  shockwave(p) {
+    const d = p.def, pos = p.pos.clone(), R = d.splash.radius;
+    this.g.effects.shockwave(pos, R); sfx.explosion(pos, 0.7); this.g.shakeFrom(pos, R * 0.7);
+    this.g.onWorldEvent?.('shock', { pos: pos.toArray(), r: R, id: p.id });
+    if (p.remote) return;
+    const c = pos.clone().add(_a.set(0, 0.3, 0));
+    for (const t of this.g.actors) {
+      if (!t.alive) continue; if (t !== p.owner && !this.g.hostile(p.owner, t)) continue;
+      const dist = c.distanceTo(t.chest(_b)) - 0.3; if (dist > R) continue;
+      if (!this.world.lineOfSight(c, _b) && !this.world.lineOfSight(c, t.headPos(_c))) continue;
+      const f = 0.45 + 0.55 * (1 - Math.max(0, dist) / R); const kb = d.knockback * f;
+      const dir = _c.subVectors(t.pos, pos).setY(0); if (dir.lengthSq() < 0.01) dir.set(Math.random() - 0.5, 0, Math.random() - 0.5); dir.normalize();
+      this.g.push(t, V(dir.x * kb, 5 + kb * 0.45, dir.z * kb), true);
+    }
+    for (const b of [...this.barricades]) if (b.center.distanceTo(pos) < R * 0.6) this.damageBarricade(b, 120);
+  }
+  // Mini black hole: every client pulls the actors it owns toward the core (hostile to the thrower only)
+  makeVortex(pos, cfg, owner, opts = {}) {
+    const v = { pos: pos.clone().setY(this.world.groundHeightAt(pos.x, pos.z, pos.y + 0.3) + 1.1), radius: cfg.radius, time: cfg.time, pull: cfg.pull, owner, t: 0, id: opts.id };
+    v.mesh = this.g.effects.vortex(v); this.vortices.push(v); sfx.whoosh(pos, true);
+    return v;
+  }
   makeSmoke(pos, cfg) {
     const cloud = { pos: pos.clone().setY(Math.max(0, pos.y - 0.3)), radius: cfg.radius, time: cfg.time, t: 0 };
     this.clouds.push(cloud); this.g.effects.smokeCloud(cloud);
@@ -456,6 +503,20 @@ export class Combat {
     return fire;
   }
   updateAreas(dt) {
+    for (let i = this.vortices.length - 1; i >= 0; i--) {
+      const v = this.vortices[i]; v.t += dt;
+      if (v.t >= v.time) { this.g.effects.vortexEnd(v); this.vortices.splice(i, 1); continue; }
+      this.g.effects.vortexTick(v, dt);
+      const ramp = Math.min(1, v.t / 0.6) * Math.min(1, (v.time - v.t) / 0.5);
+      for (const t of this.g.actors) {
+        if (!t.alive || t === v.owner || !this.g.owns(t) || (v.owner && !this.g.hostile(v.owner, t))) continue;
+        const to = _pull.set(v.pos.x - t.pos.x, v.pos.y - 1.0 - t.pos.y, v.pos.z - t.pos.z); const d = to.length();
+        if (d > v.radius || d < 0.05) continue;
+        // drift speed: ~2.6 m/s at the rim, faster than a sprint inside ~4 m, gentle settling in the core
+        const sp = v.pull * ramp * (0.32 + 0.68 * (1 - d / v.radius)) * Math.min(1, d / 1.2);
+        t.pull.addScaledVector(to.normalize(), sp);
+      }
+    }
     for (const c of this.clouds) c.t += dt;
     this.clouds = this.clouds.filter((c) => c.t < c.time && !c.ignited);
     for (let i = this.fires.length - 1; i >= 0; i--) {
@@ -483,9 +544,9 @@ export class Combat {
     const side = _d.set(-dir.z, 0, dir.x).normalize();
     for (const off of d.twin ? [-0.07, 0.07] : [0]) for (let i = 0; i < 5; i++) {
       const v = jitter(dir, d.cone * 0.8).multiplyScalar(d.range * 1.25 + Math.random() * 6).add(a.vel);
-      this.g.effects.flame(muzzle.clone().addScaledVector(dir, 0.1).addScaledVector(side, off), v, d.range / 11);
+      this.g.effects.flame(muzzle.clone().addScaledVector(dir, 0.1).addScaledVector(side, off), v, d.range / 11, !!d.cryo);
     }
-    sfx.shot('flame', a === this.g.player ? null : a.chest(V()), 0.7);
+    sfx.shot(d.cryo ? 'cryo' : 'flame', a === this.g.player ? null : a.chest(V()), 0.7);
     this.g.onFired(a, d, muzzle, dir);
     for (const t of this.enemiesOf(a)) {
       const c = t.chest(_a); const v = _b.subVectors(c, eye); const dist = v.length();
@@ -493,9 +554,11 @@ export class Combat {
       const ang = v.normalize().angleTo(dir);
       if (ang > d.cone + Math.atan(0.45 / Math.max(0.5, dist))) continue;
       if (!this.world.lineOfSight(eye, c)) continue;
+      if (d.cryo) { this.g.damage(t, d.dmg, { attacker: a, weapon: d.id, pos: c }); if (t.alive) this.g.chill(t, d.cryo, d.interval); continue; }
       this.g.damage(t, d.dmg, { attacker: a, weapon: d.id, fire: true, explosive: true, pos: c });
       if (t.alive) t.fx.burn = { dps: d.burn.dps, t: d.burn.time, owner: a, acc: 0 };
     }
+    if (d.cryo) return;   // cryo doesn't ignite smoke
     // ignite smoke clouds along the stream
     const end = eye.clone().addScaledVector(dir, d.range);
     for (const c of this.clouds) {
@@ -578,7 +641,7 @@ export class Combat {
       ws.count--; ws.cook = -1; ws.cooldown = 0.6; a.stats.throws++;
       sfx.shot('throw', a === this.g.player ? null : a.chest(V()), 0.8);
       this.g.onFired(a, d, null, a.aimDir(V()));
-      if (ws.count <= 0 && a.weapons[1]) this.g.after(0.45, () => { if (a.slot === 4 && ws.count <= 0) a.switchSlot(a.prevSlot && a.prevSlot !== 4 ? a.prevSlot : 1); });
+      const ts = d.slot; if (ws.count <= 0 && a.weapons[1]) this.g.after(0.45, () => { if (a.slot === ts && ws.count <= 0) a.switchSlot(a.prevSlot && a.prevSlot !== ts ? a.prevSlot : 1); });
     }
   }
 

@@ -57,9 +57,15 @@ add({ id: 'volt_rail', name: 'Volt Rail', slot: 1, price: 1500, speed: 0.92,
 add({ id: 'arc_caster', name: 'Arc Caster', slot: 1, price: 1250, speed: 0.98,
   kind: 'bullet', mode: 'auto', interval: 0.1, dmg: 17, head: 22, mag: 40, reserve: 160, reload: 2.2, range: 28, vel: 500,
   spread: 0.02, recoil: 0.012, chain: { n: 2, r: 7, f: 0.55 }, ads: 1.0, desc: 'Lightning bolts arc from the target to 2 enemies nearby.' });
-add({ id: 'drum_breaker', name: 'Drum Breaker', slot: 1, price: 1150, speed: 0.95,
-  kind: 'pellet', mode: 'auto', interval: 0.22, pellets: 7, dmg: 10, head: 14, mag: 16, reserve: 64, reload: 2.8, range: 13, vel: 300,
-  spread: 0.075, recoil: 0.05, ads: 1.0, desc: 'Full-auto drum shotgun. Clears rooms.' });
+add({ id: 'ricochet_disc', name: 'Ricochet Disc Launcher', slot: 1, price: 1200, speed: 0.95,
+  kind: 'projectile', proj: 'disc', mode: 'semi', interval: 0.42, dmg: 58, head: 85, mag: 6, reserve: 30, reload: 2.2, range: 60, vel: 34,
+  ricochet: 3, fuse: 3.2, recoil: 0.03, ads: 1.1, desc: 'Spinning saw discs bounce off walls 3 times and slice through everyone in their path.' });
+add({ id: 'cryo_sprayer', name: 'Cryo Sprayer', slot: 1, price: 1150, speed: 0.92,
+  kind: 'flame', mode: 'auto', interval: 0.083, dmg: 8, head: 8, mag: 120, reserve: 240, reload: 2.4, range: 12,
+  cryo: { slow: 0.5, time: 1.6, freeze: 1.4, freezeTime: 1.0 }, cone: 0.2, ammoPerShot: 1, ads: 1.1, desc: 'Freezing spray: slows enemies 50%, keep it on them for 1.4 s to freeze them solid.' });
+add({ id: 'harpoon_gun', name: 'Harpoon Gun', slot: 1, price: 1100, speed: 0.95,
+  kind: 'projectile', proj: 'harpoon', mode: 'semi', interval: 1.0, dmg: 70, head: 110, mag: 1, reserve: 10, reload: 1.5, range: 45, vel: 62,
+  pull: 1, recoil: 0.05, ads: 1.2, desc: 'Spears an enemy and reels them right up to you. Pairs well with melee.' });
 
 // ───────────── Slot 2: Secondary ─────────────
 add({ id: 'pistol', name: 'Standard Pistol', slot: 2, free: true, price: 0, speed: 1.10,
@@ -141,6 +147,12 @@ add({ id: 'adrenaline', name: 'Adrenaline Shot', slot: 5, price: 650, speed: 1.0
   kind: 'usable', use: 0.8, cooldown: 25, adrenaline: { speed: 0.2, reload: 0.25, regen: 10, time: 6 }, desc: '+20% speed, +25% reload, +10 HP/s for 6s.' });
 add({ id: 'barricade', name: 'Deployable Barricade', slot: 5, price: 800, speed: 1.0,
   kind: 'usable', use: 0, cooldown: 30, barricade: { w: 2.2, h: 1.3, hp: 300 }, desc: '2.2 × 1.3 m metal shield, 300 HP.' });
+add({ id: 'shockwave_grenade', name: 'Shockwave Grenade', slot: 5, price: 600, speed: 1.05,
+  kind: 'throwable', proj: 'concussion', carry: 5, fuse: 1.4, dmg: 0, noDamage: true,
+  splash: { radius: 7, max: 0, min: 0 }, knockback: 19, desc: 'Carry 5. No damage — a huge blast that throws everyone (you too) flying.' });
+add({ id: 'black_hole', name: 'Mini Black Hole', slot: 5, price: 1000, speed: 1.05,
+  kind: 'throwable', proj: 'singularity', carry: 1, fuse: 1.0, dmg: 0,
+  vortex: { radius: 10, time: 15, pull: 8 }, desc: 'Opens a singularity for 15 s that drags every enemy within 10 m into its core.' });
 
 // ───────────── Slot 6: Wearables ─────────────
 add({ id: 'tactical_gloves', name: 'Tactical Gloves', slot: 6, free: true, slotFree: true, price: 0,
@@ -172,7 +184,9 @@ export const ULTRAS = [
   U('grenade_launcher', { interval: 0.35, dmg: 170, head: 170, mag: 12, reserve: 24, splash: { radius: 7.5, max: 155, min: 55 }, desc: '12-shell rotary drum.' }),
   U('volt_rail', { interval: 0.55, dmg: 125, head: 210, mag: 8, reserve: 32, reload: 2.0, desc: 'Tri-coil railgun. 8 piercing slugs, rapid recharge.' }),
   U('arc_caster', { interval: 0.08, dmg: 21, head: 28, mag: 80, reserve: 240, range: 34, chain: { n: 4, r: 10, f: 0.65 }, desc: 'Tesla tower. Every bolt forks to 4 more enemies.' }),
-  U('drum_breaker', { interval: 0.16, pellets: 9, dmg: 11, head: 15, mag: 32, reserve: 96, reload: 3.0, desc: 'Twin-drum breaker. 32 shells of pure room-clearing.' }),
+  U('ricochet_disc', { interval: 0.3, dmg: 72, head: 105, mag: 12, reserve: 48, ricochet: 5, twinDisc: true, desc: 'Twin-blade launcher. Fires 2 discs at once that bounce 5 times.' }),
+  U('cryo_sprayer', { dmg: 11, head: 11, mag: 300, reserve: 300, range: 18, cone: 0.24, twin: true, cryo: { slow: 0.6, time: 2.2, freeze: 0.9, freezeTime: 1.4 }, desc: 'Twin cryo nozzles. 18 m blizzard that freezes in under a second.' }),
+  U('harpoon_gun', { interval: 0.5, dmg: 95, head: 150, mag: 3, reserve: 15, reload: 1.8, vel: 80, desc: 'Triple-shot harpoon cannon. Reel in a whole squad.' }),
   U('mortar', { interval: 0.3, dmg: 420, head: 420, mag: 6, reserve: 24, reload: 2.2, splash: { radius: 15, max: 300, min: 150 }, cluster: 3, desc: 'Six-shell battery. Every shell bursts into 3 bomblets.' }),
 ];
 export const ULTRA_OF = Object.fromEntries(ULTRAS.map((u) => [u.base, u.id]));

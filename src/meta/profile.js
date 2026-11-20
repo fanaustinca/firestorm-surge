@@ -48,6 +48,12 @@ class Profile {
     let d = null; try { d = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { d = null; }
     this.d = Object.assign(fresh(), d || {});
     this.d.settings = Object.assign(fresh().settings, this.d.settings);
+    // retired items (e.g. the Drum Breaker in v2.4): refund their price, drop them, fall back to the default in that slot
+    const RETIRED = { drum_breaker: 1150 }; let changed = false;
+    for (const id of this.d.owned || []) if (!WEAPON_BY_ID[id]) { this.d.coins += RETIRED[id] || 0; changed = true; }
+    this.d.owned = (this.d.owned || []).filter((id) => WEAPON_BY_ID[id]);
+    for (const s of Object.keys(this.d.loadout || {})) { const id = this.d.loadout[s]; if (id && !WEAPON_BY_ID[id]) { this.d.loadout[s] = DEFAULT_LOADOUT[s] ?? null; changed = true; } }
+    if (changed) this.save();
     this.ensureQuests(); this.ensureRank();
   }
   save() { try { localStorage.setItem(KEY, JSON.stringify(this.d)); } catch { /* private mode */ } }
@@ -61,7 +67,7 @@ class Profile {
     if (w.slotFree) return this.slotOwned(w.slot) || this.trials.has('slot' + w.slot);
     return this.d.owned.includes(id);
   }
-  usable(id) { const w = WEAPON_BY_ID[id]; return this.slotOpen(w.slot) && (this.owns(id) || this.trials.has(id)); }
+  usable(id) { const w = WEAPON_BY_ID[id]; if (!w) return false; return this.slotOpen(w.slot) && (this.owns(id) || this.trials.has(id)); }
   onTrial(id) { return this.trials.has(id) && !this.owns(id); }
   buy(id) {
     const w = WEAPON_BY_ID[id]; if (!w || this.owns(id) || this.d.coins < w.price) return false;

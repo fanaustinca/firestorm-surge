@@ -121,7 +121,9 @@ const ARCHETYPES = [
   { name: 'Reaper', l: { 1: 'assault_rifle', 2: 'taser', 3: 'scythe', 4: 'flashbang' }, range: [3, 20], melee: true },
   { name: 'Lineman', l: { 1: 'volt_rail', 2: 'pistol', 3: 'knife', 4: 'smoke_grenade' }, range: [20, 55] },
   { name: 'Stormcaller', l: { 1: 'arc_caster', 2: 'burst_pistol', 3: 'bat', 4: 'flashbang' }, range: [8, 24] },
-  { name: 'Bulldozer', l: { 1: 'drum_breaker', 2: 'pocket_rocket', 3: 'sledgehammer', 4: 'frag' }, range: [3, 11] },
+  { name: 'Reaver', l: { 1: 'ricochet_disc', 2: 'pocket_rocket', 3: 'sledgehammer', 4: 'frag' }, range: [8, 26] },
+  { name: 'Cryomancer', l: { 1: 'cryo_sprayer', 2: 'sawed_off', 3: 'karambit', 4: 'smoke_grenade' }, range: [3, 10] },
+  { name: 'Whaler', l: { 1: 'harpoon_gun', 2: 'smg', 3: 'katana', 4: 'flashbang' }, range: [8, 30] },
 ];
 export function botLoadout(index, forceWeapon) {
   const a = ARCHETYPES[index % ARCHETYPES.length];

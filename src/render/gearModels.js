@@ -378,10 +378,28 @@ function land_mine(m) {
   return g;
 }
 
+function shockwave_grenade(m) {
+  const g = new THREE.Group();
+  const shell = std({ color: 0x2f6fd6, metalness: 0.5, roughness: 0.35 });
+  P(g, cylY(0.032, 0.032, 0.1, 22), shell, 0, 0, 0);
+  for (const y of [-0.03, 0.0, 0.03]) P(g, torus(0.033, 0.004, 20), std({ color: 0xbfe8ff, emissive: 0x3a90d0, emissiveIntensity: 0.8 }), 0, y, 0, PI / 2);
+  P(g, cylY(0.022, 0.032, 0.014, 22), m.darksteel, 0, 0.057, 0);
+  spoonPin(g, m, 0.072);
+  return g;
+}
+function black_hole(m) {
+  const g = new THREE.Group();
+  P(g, sphere(0.04, 20, 14), std({ color: 0x050308, metalness: 0.9, roughness: 0.1 }));
+  const glow = std({ color: 0x8a3cff, emissive: 0x8a3cff, emissiveIntensity: 1.4 });
+  for (let i = 0; i < 3; i++) P(g, torus(0.05, 0.004, 24), m.darksteel, 0, 0, 0, PI / 2 + i * 0.6, i * 1.1, 0);
+  P(g, torus(0.046, 0.003, 24), glow, 0, 0, 0, PI / 2);
+  P(g, sphere(0.014, 10, 8), glow, 0, 0.05, 0);
+  return g;
+}
 export const GEAR_BUILDERS = {
   land_mine,
   fists, knife, scythe, bat, karambit, katana, sledgehammer, shurikens, slippers,
   frag, smoke_grenade, molotov, flashbang, sticky_bomb,
-  medkit, ammo_pack, armor_plate, adrenaline, barricade,
+  medkit, ammo_pack, armor_plate, adrenaline, barricade, shockwave_grenade, black_hole,
   tactical_gloves, spring_boots, bandolier, blast_vest, thermal_goggles,
 };

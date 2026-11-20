@@ -45,6 +45,8 @@ export class Effects {
     for (const t of this.tethers) this.root.remove(t.mesh);
     for (const f of this.fireballs) this.root.remove(f.mesh);
     for (const p of this.pools) this.root.remove(p.mesh);
+    for (const v of this.vortexMeshes || []) this.root.remove(v);
+    this.vortexMeshes = [];
     this.smokes = []; this.rings = []; this.popups = []; this.tethers = []; this.fireballs = []; this.pools = []; this.parts = []; this.clouds = [];
   }
 
@@ -75,8 +77,8 @@ export class Effects {
     for (let i = 0; i < 3; i++) this.spawn(pos, dir.clone().multiplyScalar(6 + Math.random() * 4).add(new THREE.Vector3((Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2)), color, 0.06 * big, 0.08);
     this.flashLight.position.copy(pos); this.flashLight.intensity = 6 * big; this.flashT = 0.05;
   }
-  flame(pos, vel, reach = 1) {
-    const c = Math.random() < 0.3 ? 0xff5010 : Math.random() < 0.5 ? 0xffa020 : 0xffd060;
+  flame(pos, vel, reach = 1, cryo = false) {
+    const c = cryo ? (Math.random() < 0.35 ? 0xffffff : Math.random() < 0.5 ? 0x9fe4ff : 0x5ab8f0) : Math.random() < 0.3 ? 0xff5010 : Math.random() < 0.5 ? 0xffa020 : 0xffd060;
     this.spawn(pos, vel, c, 0.25 + Math.random() * 0.15, (0.45 + Math.random() * 0.2) * Math.min(1.5, Math.max(1, reach)), { grow: 1.6 * Math.max(1, reach * 0.9), gravity: 2, drag: 1.2 });
   }
 
@@ -137,6 +139,41 @@ export class Effects {
       this.tether(prev, p, time, 0xc8a8ff, 0.016); prev = p;
     }
     this.spawn(b, new THREE.Vector3(), 0xd8c0ff, 0.5, 0.08);
+  }
+  // shockwave grenade: pale-blue expanding shell + a ring of dust thrown outward
+  shockwave(pos, radius) {
+    const fb = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), new THREE.MeshBasicMaterial({ color: 0xbfe8ff, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+    fb.position.copy(pos); this.root.add(fb); this.fireballs.push({ mesh: fb, t: 0, max: 0.4, r: radius * 1.05, keep: true, op: 0.45 });
+    for (let i = 0; i < 36; i++) { const a = (i / 36) * Math.PI * 2; this.spawn(pos.clone().setY(pos.y + 0.2), new THREE.Vector3(Math.cos(a) * radius * 2.6, 1 + Math.random() * 2, Math.sin(a) * radius * 2.6), 0xd8d0c0, 0.35 + Math.random() * 0.3, 0.45, { grow: 2.5, drag: 4 }); }
+    for (let i = 0; i < 14; i++) this.spawn(pos, new THREE.Vector3((Math.random() - 0.5) * 8, Math.random() * 6, (Math.random() - 0.5) * 8), 0x9fdcff, 0.08, 0.4, { gravity: -6 });
+  }
+  // mini black hole: black core, glowing violet shell, spinning accretion disc, faint range ring
+  vortex(v) {
+    const g = new THREE.Group(); g.position.copy(v.pos);
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.5, 24, 16), new THREE.MeshBasicMaterial({ color: 0x000000 })); g.add(core);
+    const shell = new THREE.Mesh(new THREE.SphereGeometry(0.72, 24, 16), new THREE.MeshBasicMaterial({ color: 0x8a3cff, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })); shell.name = 'shell'; g.add(shell);
+    const disc = new THREE.Mesh(new THREE.RingGeometry(0.75, 1.9, 48), new THREE.MeshBasicMaterial({ color: 0xc070ff, transparent: true, opacity: 0.55, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+    disc.rotation.x = -Math.PI / 2 + 0.35; disc.name = 'disc'; g.add(disc);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(v.radius - 0.15, v.radius, 64), new THREE.MeshBasicMaterial({ color: 0x8a3cff, transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false, toneMapped: false }));
+    ring.rotation.x = -Math.PI / 2; ring.position.y = -1.05; ring.name = 'range'; g.add(ring);
+    this.root.add(g); (this.vortexMeshes ||= []).push(g);
+    return g;
+  }
+  vortexTick(v, dt) {
+    const g = v.mesh; if (!g) return; const k = Math.min(1, v.t / 0.5) * Math.min(1, (v.time - v.t) / 0.6);
+    g.scale.setScalar(0.2 + 0.8 * k);
+    g.getObjectByName('disc').rotation.z += dt * 4; g.getObjectByName('shell').material.opacity = 0.25 + Math.sin(v.t * 9) * 0.1;
+    g.getObjectByName('range').scale.setScalar(1 / Math.max(0.2, g.scale.x));
+    if (Math.random() < 0.9) for (let i = 0; i < 2; i++) {   // debris spiralling inward
+      const a = Math.random() * Math.PI * 2, r = 2.5 + Math.random() * (v.radius - 2.5);
+      const p = v.pos.clone().add(new THREE.Vector3(Math.cos(a) * r, (Math.random() - 0.6) * 1.6, Math.sin(a) * r));
+      const inward = v.pos.clone().sub(p).normalize().multiplyScalar(r * 1.4); inward.add(new THREE.Vector3(-Math.sin(a), 0, Math.cos(a)).multiplyScalar(r * 0.8));
+      this.spawn(p, inward, Math.random() < 0.5 ? 0xb070ff : 0x6a40c0, 0.07 + Math.random() * 0.06, Math.min(0.7, r / (r * 1.4)), { drag: 0 });
+    }
+  }
+  vortexEnd(v) {
+    if (!v.mesh) return; this.root.remove(v.mesh); this.vortexMeshes = (this.vortexMeshes || []).filter((m) => m !== v.mesh);
+    for (let i = 0; i < 30; i++) this.spawn(v.pos, new THREE.Vector3((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 12), 0xc070ff, 0.12, 0.5, { drag: 2 });
   }
   tether(a, b, time = 0.35, color = 0x80e0ff, r = 0.008) {
     const len = a.distanceTo(b);
@@ -208,7 +245,7 @@ export class Effects {
     for (let i = this.fireballs.length - 1; i >= 0; i--) {
       const f = this.fireballs[i]; f.t += dt; const u = f.t / f.max;
       if (u >= 1) { this.root.remove(f.mesh); f.mesh.geometry.dispose(); this.fireballs.splice(i, 1); continue; }
-      f.mesh.scale.setScalar(f.r * (0.3 + u * 0.9)); f.mesh.material.opacity = 0.9 * (1 - u); f.mesh.material.color.setHSL(0.08 - u * 0.06, 1, 0.6 - u * 0.3);
+      f.mesh.scale.setScalar(f.r * (0.3 + u * 0.9)); f.mesh.material.opacity = (f.op ?? 0.9) * (1 - u); if (!f.keep) f.mesh.material.color.setHSL(0.08 - u * 0.06, 1, 0.6 - u * 0.3);
     }
     // rings
     for (let i = this.rings.length - 1; i >= 0; i--) {

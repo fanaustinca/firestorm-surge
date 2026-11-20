@@ -241,11 +241,26 @@ function arc_caster_ultra(m, opt) {
   emblem(g, 0.05, 0.0);
   return g;
 }
-function drum_breaker_ultra(m, opt) {
-  const g = base('drum_breaker', m, opt);
-  const d2 = drum(g, m, -0.12, -0.08, 0.08, 0.06); d2.name = 'drum2'; d2.position.x = 0.072;
-  P(g, cylZ(0.016, 0.016, 0.3, 14), m.gunmetal, 0, 0.0, -0.4);                         // under-barrel second tube
-  P(g, rbox(0.07, 0.01, 0.3, 0.003), NEON(), 0, 0.08, -0.3);
+function ricochet_disc_ultra(m, opt) {
+  const g = base('ricochet_disc', m, opt);
+  const d2 = g.getObjectByName('disc').clone(); d2.name = 'disc2'; d2.position.y = 0.0; g.add(d2); g.getObjectByName('disc').position.y = 0.066;
+  P(g, rbox(0.11, 0.022, 0.3, 0.006), m.darksteel, 0, 0.098, -0.32);
+  for (const sx of [-1, 1]) P(g, rbox(0.01, 0.12, 0.08, 0.003), PINK(), sx * 0.064, 0.05, -0.21);
+  emblem(g, 0.06, -0.1);
+  return g;
+}
+function cryo_sprayer_ultra(m, opt) {
+  const g = base('cryo_sprayer', m, opt);
+  const ice = std({ color: 0x8fdcff, emissive: 0x2a90c8, emissiveIntensity: 0.9, roughness: 0.2 });
+  for (const sx of [-1, 1]) { P(g, cylZ(0.016, 0.014, 0.26, 14), m.gunmetal, sx * 0.05, 0.02, -0.38); P(g, torus(0.02, 0.005, 14), ice, sx * 0.05, 0.02, -0.52); }
+  P(g, cylZ(0.05, 0.05, 0.16, 20), NEON(), 0, -0.13, -0.12);
+  emblem(g, 0.05, 0.0);
+  return g;
+}
+function harpoon_gun_ultra(m, opt) {
+  const g = base('harpoon_gun', m, opt);
+  for (const sx of [-1, 1]) { P(g, cylZ(0.018, 0.018, 0.42, 14), m.gunmetal, sx * 0.045, 0.01, -0.36); P(g, new THREE.ConeGeometry(0.014, 0.05, 4).rotateX(-PI / 2), NEON(), sx * 0.045, 0.01, -0.6); }
+  P(g, cylX(0.05, 0.05, 0.08, 20), PINK(), 0, -0.045, -0.24);
   emblem(g, 0.06, -0.1);
   return g;
 }
@@ -253,6 +268,6 @@ function drum_breaker_ultra(m, opt) {
 export const ULTRA_BUILDERS = {
   assault_rifle_ultra, ak47_ultra, dmr_ultra, rocket_launcher_ultra, burst_rifle_ultra, lmg_ultra,
   heavy_sniper_ultra, flamethrower_ultra, grenade_launcher_ultra, mortar_ultra,
-  volt_rail_ultra, arc_caster_ultra, drum_breaker_ultra,
+  volt_rail_ultra, arc_caster_ultra, ricochet_disc_ultra, cryo_sprayer_ultra, harpoon_gun_ultra,
 };
 void cylY; void sphere; void holoSight; void rbox;

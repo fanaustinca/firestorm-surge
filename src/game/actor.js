@@ -22,10 +22,10 @@ export class Actor {
   constructor({ id, name, team = 'ffa', isBot = false, isLocal = false }) {
     this.uid = ++ACTOR_SEQ;
     this.id = id; this.name = name; this.team = team; this.isBot = isBot; this.isLocal = isLocal; this.isRemote = false;
-    this.pos = new THREE.Vector3(); this.vel = new THREE.Vector3(); this.yaw = 0; this.pitch = 0; this.onGround = true;
+    this.pos = new THREE.Vector3(); this.vel = new THREE.Vector3(); this.pull = new THREE.Vector3(); this.yaw = 0; this.pitch = 0; this.onGround = true;
     this.hp = BASE_HP; this.armor = 0; this.alive = true; this.respawnT = 0; this.spawnProtect = 0;
     this.loadout = {}; this.weapons = {}; this.slot = 1; this.prevSlot = 1; this.drawT = 0; this.mods = {};
-    this.fx = { burn: null, bleed: [], stun: 0, flash: 0, adrenaline: 0, scythe: 0, scytheCd: 0, emotional: 0 };
+    this.fx = { burn: null, bleed: [], stun: 0, flash: 0, adrenaline: 0, scythe: 0, scytheCd: 0, emotional: 0, chill: 0, chillSlow: 0, frost: 0, frozen: 0 };
     this.jumpsLeft = 0; this.climbing = false;
     this.stats = { kills: 0, deaths: 0, assists: 0, damage: 0, headshots: 0, meleeKills: 0, explosiveKills: 0, emotional: 0, throws: 0, score: 0 };
     this.thermal = { on: false, battery: 8 };
@@ -52,6 +52,7 @@ export class Actor {
     let m = THREE.MathUtils.clamp(base + passive, SPEED_MIN, SPEED_MAX);
     if (this.fx.scythe > 0 && w?.id === 'scythe') m = Math.min(SPEED_ABILITY_MAX, base + passive + w.ability.boost);
     if (this.fx.stun > 0) m *= 0.35;
+    if (this.fx.chill > 0) m *= 1 - (this.fx.chillSlow || 0.5);
     return m;
   }
   reloadMult() { return 1 + (this.mods.reload || 0) + (this.fx.adrenaline > 0 ? 0.25 : 0); }
@@ -77,7 +78,7 @@ export class Actor {
     this.aliveSince = null;
     this.pos.copy(pos); this.vel.set(0, 0, 0); this.yaw = yaw; this.pitch = 0;
     this.hp = BASE_HP; this.armor = 0; this.alive = true; this.spawnProtect = 1.5;
-    this.fx = { burn: null, bleed: [], stun: 0, flash: 0, adrenaline: 0, scythe: 0, scytheCd: 0, emotional: 0 };
+    this.fx = { burn: null, bleed: [], stun: 0, flash: 0, adrenaline: 0, scythe: 0, scytheCd: 0, emotional: 0, chill: 0, chillSlow: 0, frost: 0, frozen: 0 };
     this.setLoadout(this.loadout, this.skins);
     this.slot = this.weapons[this.prevSpawnSlot || 1] ? (this.prevSpawnSlot || 1) : 1;
     this.thermal = { on: false, battery: 8 };
@@ -116,7 +117,9 @@ export class Actor {
     }
     // exact parabolic step (peak height = v²/2g, independent of frame rate)
     const ay = this.climbing ? 0 : GRAVITY;
-    this.pos.x += v.x * dt; this.pos.z += v.z * dt;
+    this.pos.x += (v.x + this.pull.x) * dt; this.pos.z += (v.z + this.pull.z) * dt;   // pull: external drift (black holes)
+    if (this.pull.y > 0 && !this.onGround) this.pos.y += this.pull.y * dt;
+    this.pull.set(0, 0, 0);
     this.pos.y += v.y * dt + 0.5 * ay * dt * dt;
     v.y += ay * dt;
     const wasGround = this.onGround;

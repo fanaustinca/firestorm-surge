@@ -26,20 +26,20 @@ try {
   const menu = await page.evaluate(() => ({ play: !!document.querySelector('#play'), dev: typeof DEV.inspectGun === 'function', maps: document.querySelectorAll('[data-map]').length, modes: [...document.querySelectorAll('[data-mode]')].map((b) => b.dataset.mode), ver: document.querySelector('.logo .ver')?.textContent }));
   check('Menu: mode-only selection (no map picker) + version tag', menu.play && menu.dev && menu.maps === 0 && menu.modes.includes('practice') && menu.modes.length === 5 && /^v\d+\.\d+\.\d+$/.test(menu.ver || ''), `${menu.modes.join(',')} · ${menu.ver}`);
   const SPEC_IDS = ['assault_rifle', 'ak47', 'dmr', 'rocket_launcher', 'burst_rifle', 'lmg', 'heavy_sniper', 'flamethrower', 'grenade_launcher', 'mortar',
-    'volt_rail', 'arc_caster', 'drum_breaker',
+    'volt_rail', 'arc_caster', 'ricochet_disc', 'cryo_sprayer', 'harpoon_gun',
     'pistol', 'smg', 'crossbow', 'burst_pistol', 'revolver', 'sawed_off', 'tactical_shotgun', 'taser', 'pocket_rocket',
     'fists', 'knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer', 'shurikens', 'slippers',
-    'frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb', 'land_mine', 'medkit', 'ammo_pack', 'armor_plate', 'adrenaline', 'barricade',
+    'frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb', 'land_mine', 'medkit', 'ammo_pack', 'armor_plate', 'adrenaline', 'barricade', 'shockwave_grenade', 'black_hole',
     'tactical_gloves', 'spring_boots', 'bandolier', 'blast_vest', 'thermal_goggles'];
   const have = await page.evaluate(() => DEV.list().map((x) => x.split(': ')[1]));
   const missing = SPEC_IDS.filter((x) => !have.includes(x));
-  check('Every item exists (39 + 3 slot freebies + Land Mine + 4 new guns)', missing.length === 0 && have.length === SPEC_IDS.length, missing.length ? 'missing ' + missing : `${have.length} entries`);
+  check('Every item exists (51 items incl. Disc / Cryo / Harpoon + Shockwave / Black Hole)', missing.length === 0 && have.length === SPEC_IDS.length, missing.length ? 'missing ' + missing : `${have.length} entries`);
   const meshes = await page.evaluate((ids) => ids.map((id) => { try { DEV.inspectGun(id); let n = 0; DEV.game.studio.holder.traverse((o) => { if (o.isMesh) n++; }); return [id, n]; } catch (e) { return [id, -1, e.message]; } }), SPEC_IDS);
   const thin = meshes.filter(([, n]) => n < 5);
-  check('All 43 item meshes are multi-part (≥5 meshes each)', thin.length === 0, thin.length ? JSON.stringify(thin) : `min ${Math.min(...meshes.map((m) => m[1]))} meshes`);
+  check('Every item mesh are multi-part (≥5 meshes each)', thin.length === 0, thin.length ? JSON.stringify(thin) : `min ${Math.min(...meshes.map((m) => m[1]))} meshes`);
   const ultras = await page.evaluate(() => DEV.ultras().map((id) => { DEV.inspectGun(id); let n = 0, glow = 0; DEV.game.studio.holder.traverse((o) => { if (o.isMesh) { n++; if (o.material.emissiveIntensity > 1.5) glow++; } }); return [id, n, glow]; }));
   const baseCounts = await page.evaluate(() => Object.fromEntries(DEV.ultras().map((u) => { const id = u.replace('_ultra', ''); DEV.inspectGun(id); let n = 0; DEV.game.studio.holder.traverse((o) => { if (o.isMesh) n++; }); return [id, n]; })));
-  check('Every main firearm has a distinct ULTRA model in standard colours (no neon glow)', ultras.length === 13 && ultras.every(([id, n, gl]) => n >= 10 && gl <= 2 && n !== baseCounts[id.replace('_ultra', '')]), ultras.map(([i, n, gl]) => `${i.replace('_ultra', '')}:${n}/${gl}`).join(' '));
+  check('Every main firearm has a distinct ULTRA model in standard colours (no neon glow)', ultras.length === 15 && ultras.every(([id, n, gl]) => n >= 10 && gl <= 2 && n !== baseCounts[id.replace('_ultra', '')]), ultras.map(([i, n, gl]) => `${i.replace('_ultra', '')}:${n}/${gl}`).join(' '));
   const spinners = await page.evaluate(() => { DEV.inspectGun('rocket_launcher_ultra'); const h = DEV.game.studio.holder; const wheel = h.getObjectByName('wheel'); const rockets = [0, 1, 2, 3, 4, 5].filter((i) => wheel?.getObjectByName('rk' + i)).length; DEV.inspectGun('lmg_ultra'); let barrels = 0; DEV.game.studio.holder.getObjectByName('spin')?.traverse((o) => { if (o.isMesh && o.geometry.parameters?.height > 0.6) barrels++; }); return { wheel: !!wheel, rockets, barrels, mag: DEV.weapon('rocket_launcher_ultra').mag }; });
   check('Ultra rocket launcher: single barrel fed by a 6-rocket revolving cylinder; Ultra LMG has 6 rotating barrels', spinners.wheel && spinners.rockets === 6 && spinners.mag === 6 && spinners.barrels === 6, JSON.stringify(spinners));
   const ultraStats = await page.evaluate(() => { const W = DEV.game.constructor && null; void W; const by = (id) => DEV.game.player ? null : null; void by; return null; });
@@ -79,7 +79,7 @@ try {
   check('ADS line is raised clear of carry handles / housings', adsL.lmg > 0 && adsL.lmg_ultra > 0, JSON.stringify(adsL));
   // the exact screen centre must not be covered by any solid part of the gun while aiming (non-scoped guns)
   const adsC = await page.evaluate(() => { const g = DEV.game, T = DEV.THREE; const out = {};
-    for (const [s, id] of [[1, 'grenade_launcher_ultra'], [1, 'rocket_launcher_ultra'], [1, 'lmg_ultra'], [1, 'ak47'], [1, 'drum_breaker'], [2, 'pistol'], [2, 'smg'], [2, 'pocket_rocket']]) {
+    for (const [s, id] of [[1, 'grenade_launcher_ultra'], [1, 'rocket_launcher_ultra'], [1, 'lmg_ultra'], [1, 'ak47'], [1, 'ricochet_disc'], [2, 'pistol'], [2, 'smg'], [2, 'pocket_rocket']]) {
       DEV.equip(s, id); DEV.select(s); DEV.advance(0.6); DEV.input({ alt: true }); DEV.advance(0.8); g.renderFrame(1 / 60);
       const rc = new T.Raycaster(); rc.setFromCamera(new T.Vector2(0, 0), g.vm.camera); const meshes = []; g.vm.item.traverse((o) => { if (o.isMesh && o.visible && !o.material.userData?.seeThru) meshes.push(o); });
       out[id] = rc.intersectObjects(meshes, false).length; DEV.input(null); DEV.advance(0.4);
@@ -222,8 +222,33 @@ try {
     const c1 = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-4, 0, 28] }), c2 = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-4, 0, 31] });
     const w0 = hp(c2); shoot(1, 'arc_caster', c1); const arc = w0 - hp(c2);
     DEV.clearBots();
-    // Drum Breaker is full-auto: holding the trigger keeps firing
-    DEV.equip(1, 'drum_breaker'); DEV.select(1); DEV.advance(0.6); const m0 = g.player.ws.mag; DEV.input({ fire: true }); DEV.advance(1.0); DEV.input(null); const drum = m0 - g.player.ws.mag;
+    const V = DEV.THREE.Vector3; const bot = (id) => g.actors.find((x) => x.id === id);
+    // Ricochet disc: slices through two enemies in line, and bounces off a wall
+    const d1 = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-6, 0, 28] }), d2 = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-2, 0, 28] });
+    const dd0 = [hp(d1), hp(d2)]; shoot(1, 'ricochet_disc', d1); DEV.advance(0.5); const disc = { slice: [dd0[0] - hp(d1), dd0[1] - hp(d2)] };
+    DEV.clearBots();
+    const pr = g.combat.spawnProj(g.player, DEV.weapon('ricochet_disc'), 'disc', new V(0, 1.5, 25), new V(0, 0, 34)); DEV.advance(0.3); disc.bounced = pr.bounces;
+    // Cryo: slows while sprayed, freezes after sustained exposure
+    const f1 = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-7, 0, 28] }); DEV.equip(1, 'cryo_sprayer'); DEV.select(1); DEV.advance(0.6);
+    const hold = (sec) => { for (let k = 0; k < sec * 20; k++) { DEV.aimAt(f1, 'body'); DEV.input({ fire: true }); DEV.advance(0.05); } DEV.input(null); };
+    const fh0 = hp(f1); hold(0.5); const cryo = { dmg: fh0 - hp(f1), slow: +bot(f1).speedMult().toFixed(2) }; hold(1.5); cryo.frozen = bot(f1).fx.frozen > 0 || bot(f1).fx.stun > 0;
+    DEV.clearBots();
+    // Harpoon: spears an enemy 15 m away and reels them in
+    const h1 = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [3, 0, 28] }); const hh0 = hp(h1); shoot(1, 'harpoon_gun', h1); DEV.advance(1.2);
+    const harpoon = { dmg: hh0 - hp(h1), distBefore: 15, distAfter: +bot(h1).pos.distanceTo(g.player.pos).toFixed(1) };
+    DEV.clearBots();
+    // Shockwave grenade (usable, carry 5): no damage, big throw
+    DEV.equip(5, 'shockwave_grenade'); const sw = g.player.weapons[5];
+    const k1 = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-6, 0, 28] }); const kp = bot(k1).pos.clone(); const kh = hp(k1);
+    DEV.throwAt(-7, 0, 28, 'shockwave_grenade'); DEV.advance(0.8);
+    const shock = { carry: sw?.count, dmg: kh - hp(k1), moved: +bot(k1).pos.distanceTo(kp).toFixed(1) };
+    DEV.clearBots();
+    // Mini black hole: drags enemies into the core for 15 s
+    DEV.teleport(5, 0, 27); const b1 = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-15.5, 0, 27.5] });
+    DEV.throwAt(-8, 0, 27.5, 'black_hole'); DEV.advance(0.2); const vx = g.combat.vortices[0]; const bd0 = vx ? Math.hypot(bot(b1).pos.x - vx.pos.x, bot(b1).pos.z - vx.pos.z) : -1;
+    DEV.advance(3); const bd1 = vx ? Math.hypot(bot(b1).pos.x - vx.pos.x, bot(b1).pos.z - vx.pos.z) : -1; const selfPulled = vx ? Math.hypot(g.player.pos.x - vx.pos.x, g.player.pos.z - vx.pos.z) : -1;
+    DEV.advance(12.5); const hole = { from: +bd0.toFixed(1), to: +bd1.toFixed(1), ownerDist: +selfPulled.toFixed(1), gone: g.combat.vortices.length === 0, time: vx?.time };
+    DEV.clearBots();
     // Pocket Rocket: explosive pistol round
     const r1 = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-5, 0, 28] }); const r0 = hp(r1); shoot(2, 'pocket_rocket', r1); DEV.advance(0.5); const rocket = r0 - hp(r1);
     DEV.clearBots();
@@ -231,11 +256,16 @@ try {
     DEV.equip(1, 'mortar'); DEV.select(1); DEV.advance(0.6); g.renderFrame(1 / 60); const mk = !!g.mortarMark?.visible; const md = DEV.weapon('mortar');
     DEV.select(2); DEV.advance(0.6); g.renderFrame(1 / 60); const mkOff = !g.mortarMark.visible;
     g.god = god0;
-    return { volt, arc, drum, rocket, mortar: { mag: md.mag, radius: md.splash.radius, marker: mk, hiddenOtherwise: mkOff }, ultraCluster: DEV.weapon('mortar_ultra').cluster };
+    return { volt, arc, disc, cryo, harpoon, shock, hole, rocket, mortar: { mag: md.mag, radius: md.splash.radius, marker: mk, hiddenOtherwise: mkOff }, ultraCluster: DEV.weapon('mortar_ultra').cluster };
   });
   check('Volt Rail slug pierces both enemies in line', ng.volt[0] > 0 && ng.volt[1] > 0, JSON.stringify(ng.volt));
   check('Arc Caster lightning chains to a nearby enemy', ng.arc > 0, `${ng.arc} chain dmg`);
-  check('Drum Breaker is full-auto; Pocket Rocket explodes', ng.drum >= 4 && ng.rocket >= 50, `drum ${ng.drum} shells/s · rocket ${ng.rocket}`);
+  check('Pocket Rocket explodes', ng.rocket >= 50, `rocket ${ng.rocket}`);
+  check('Ricochet Disc slices through enemies in line and bounces off walls', ng.disc.slice[0] > 0 && ng.disc.slice[1] > 0 && ng.disc.bounced >= 1, JSON.stringify(ng.disc));
+  check('Cryo Sprayer damages, slows, then freezes', ng.cryo.dmg > 0 && ng.cryo.slow < 0.7 && ng.cryo.frozen, JSON.stringify(ng.cryo));
+  check('Harpoon spears and reels the enemy in', ng.harpoon.dmg >= 70 && ng.harpoon.distAfter < 5, JSON.stringify(ng.harpoon));
+  check('Shockwave Grenade: carry 5, no damage, throws enemies', ng.shock.carry === 5 && ng.shock.dmg === 0 && ng.shock.moved > 2.5, JSON.stringify(ng.shock));
+  check('Mini Black Hole pulls enemies in (not the thrower) and lasts 15 s', ng.hole.to < 2.2 && ng.hole.from > 5 && ng.hole.ownerDist > 6 && ng.hole.gone && ng.hole.time === 15, JSON.stringify(ng.hole));
   check('Mortar buffed (3-shell tube, 12.5 m) + shooter-only landing marker; Ultra shells cluster', ng.mortar.mag === 3 && ng.mortar.radius >= 12 && ng.mortar.marker && ng.mortar.hiddenOtherwise && ng.ultraCluster === 3, JSON.stringify(ng.mortar));
 
   // ───────── bot tiers ─────────

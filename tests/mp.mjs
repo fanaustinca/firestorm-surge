@@ -37,6 +37,8 @@ if (ok) {
   // warmup is 3 s of *game* time — slow software rendering can stretch that well past a fixed real-time wait
   for (let i = 0; i < 40; i++) { const ph = await Promise.all([A, B].map((p) => p.evaluate(() => DEV.game.match?.phase))); if (ph.every((x) => x === 'live')) break; await wait(500); }
   await B.evaluate(() => { DEV.godMode(); DEV.setHealth(150, 0); });
+  // park the backfill bots in a corner so none can wander into the firing lane
+  for (const p of [A, B]) await p.evaluate(() => { const g = DEV.game; for (const a of g.actors) if (a.isBot && g.owns(a)) { a.pos.set(27, 0, -27); a.vel.set(0, 0, 0); const br = g.brains.get(a); if (br) br.frozen = true; } });
   const hit = await A.evaluate(async ([id, x, z]) => { DEV.teleport(x, 0, z + 6, 0); DEV.equip(1, 'assault_rifle'); DEV.select(1); DEV.game.player.spawnProtect = 0; await new Promise((r) => setTimeout(r, 400)); DEV.aimAt(id, 'body'); DEV.input({ alt: true, fire: true, firePressed: true }); await new Promise((r) => setTimeout(r, 500)); DEV.input(null); await new Promise((r) => setTimeout(r, 1200)); return true; }, [bId, SX, SZ]);
   void hit;
   const hp = await B.evaluate(() => DEV.game.player.hp);
