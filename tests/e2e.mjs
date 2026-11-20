@@ -28,12 +28,12 @@ try {
   const SPEC_IDS = ['assault_rifle', 'ak47', 'dmr', 'rocket_launcher', 'burst_rifle', 'lmg', 'heavy_sniper', 'flamethrower', 'grenade_launcher', 'mortar',
     'volt_rail', 'arc_caster', 'ricochet_disc', 'cryo_sprayer', 'harpoon_gun',
     'pistol', 'smg', 'crossbow', 'burst_pistol', 'revolver', 'sawed_off', 'tactical_shotgun', 'taser', 'pocket_rocket',
-    'fists', 'knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer', 'shurikens', 'slippers',
-    'frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb', 'land_mine', 'medkit', 'ammo_pack', 'armor_plate', 'adrenaline', 'barricade', 'shockwave_grenade', 'black_hole',
+    'fists', 'knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer', 'shurikens', 'slippers', 'grapple_hook',
+    'frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb', 'land_mine', 'medkit', 'ammo_pack', 'armor_plate', 'adrenaline', 'barricade', 'shockwave_grenade', 'black_hole', 'sentry_turret',
     'tactical_gloves', 'spring_boots', 'bandolier', 'blast_vest', 'thermal_goggles'];
   const have = await page.evaluate(() => DEV.list().map((x) => x.split(': ')[1]));
   const missing = SPEC_IDS.filter((x) => !have.includes(x));
-  check('Every item exists (51 items incl. Disc / Cryo / Harpoon + Shockwave / Black Hole)', missing.length === 0 && have.length === SPEC_IDS.length, missing.length ? 'missing ' + missing : `${have.length} entries`);
+  check('Every item exists (53 items incl. Grapple Hook + Sentry Turret)', missing.length === 0 && have.length === SPEC_IDS.length, missing.length ? 'missing ' + missing : `${have.length} entries`);
   const meshes = await page.evaluate((ids) => ids.map((id) => { try { DEV.inspectGun(id); let n = 0; DEV.game.studio.holder.traverse((o) => { if (o.isMesh) n++; }); return [id, n]; } catch (e) { return [id, -1, e.message]; } }), SPEC_IDS);
   const thin = meshes.filter(([, n]) => n < 5);
   check('Every item mesh are multi-part (≥5 meshes each)', thin.length === 0, thin.length ? JSON.stringify(thin) : `min ${Math.min(...meshes.map((m) => m[1]))} meshes`);
@@ -255,8 +255,31 @@ try {
     // Mortar: 3-shell tube, landing marker shows only while holding it
     DEV.equip(1, 'mortar'); DEV.select(1); DEV.advance(0.6); g.renderFrame(1 / 60); const mk = !!g.mortarMark?.visible; const md = DEV.weapon('mortar');
     DEV.select(2); DEV.advance(0.6); g.renderFrame(1 / 60); const mkOff = !g.mortarMark.visible;
+    // Slide (C): fast, low, smaller hitbox, then stands back up
+    DEV.select(1); DEV.advance(0.4); DEV.teleport(-12, 0, 28, -Math.PI / 2); DEV.advance(0.2); const P = g.player;
+    DEV.input({ forward: true }); DEV.advance(0.5); const sx0 = P.pos.x;
+    DEV.input({ forward: true, slide: true }); g.fixedUpdate(1 / 60); DEV.input({ forward: true }); DEV.advance(0.15);
+    const slide = { speed: +Math.hypot(P.vel.x, P.vel.z).toFixed(1), eye: +(P.eye(new V()).y - P.pos.y).toFixed(2), head: +(P.headPos(new V()).y - P.pos.y).toFixed(2) };
+    DEV.advance(0.4); slide.dist = +(P.pos.x - sx0).toFixed(1); DEV.advance(0.8); slide.standing = P.low < 0.05; DEV.input(null); DEV.advance(0.3);
+    // Grapple Hook: RMB zips you up onto a container; on an enemy it hits and pulls you into their face
+    DEV.equip(3, 'grapple_hook'); DEV.select(3); DEV.advance(0.4);
+    DEV.teleport(-12, 0, 28); DEV.look(0, 0.25); DEV.advance(0.2); P.grappleCd = 0;
+    DEV.input({ altPressed: true }); g.fixedUpdate(1 / 60); DEV.input(null); const hooked = !!P.grapple; let topY = 0; for (let k = 0; k < 90; k++) { g.fixedUpdate(1 / 60); topY = Math.max(topY, P.pos.y); }
+    const grapple = { hooked, topY: +topY.toFixed(1), endY: +P.pos.y.toFixed(1), cd: +P.grappleCd.toFixed(2) };
+    DEV.teleport(-12, 0, 28); DEV.advance(1.5); P.grappleCd = 0;
+    const gh1 = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [6, 0, 28] }); DEV.aimAt(gh1, 'body'); const gh0 = hp(gh1);
+    DEV.input({ altPressed: true }); g.fixedUpdate(1 / 60); DEV.input(null); DEV.advance(1.2);
+    grapple.enemyDmg = gh0 - hp(gh1); grapple.enemyDist = +P.pos.distanceTo(bot(gh1).pos).toFixed(1);
+    DEV.clearBots();
+    // Sentry Turret: deploys, shoots the nearest enemy, expires after 30 s
+    DEV.teleport(-12, 0, 28, -Math.PI / 2); DEV.advance(0.2); DEV.equip(5, 'sentry_turret'); DEV.select(5); DEV.advance(0.4);
+    DEV.input({ fire: true, firePressed: true }); g.fixedUpdate(1 / 60); DEV.input(null); DEV.advance(1.0);
+    const st = g.combat.sentries[0]; const sb = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [2, 0, 28] }); const sb0 = hp(sb);
+    DEV.advance(2); const sentry = { placed: !!st, dmg: sb0 - hp(sb), credited: st && st.owner === P, backToGun: P.slot !== 5 };
+    DEV.advance(28); sentry.expired = g.combat.sentries.length === 0;
+    DEV.clearBots();
     g.god = god0;
-    return { volt, arc, disc, cryo, harpoon, shock, hole, rocket, mortar: { mag: md.mag, radius: md.splash.radius, marker: mk, hiddenOtherwise: mkOff }, ultraCluster: DEV.weapon('mortar_ultra').cluster };
+    return { slide, grapple, sentry, volt, arc, disc, cryo, harpoon, shock, hole, rocket, mortar: { mag: md.mag, radius: md.splash.radius, marker: mk, hiddenOtherwise: mkOff }, ultraCluster: DEV.weapon('mortar_ultra').cluster };
   });
   check('Volt Rail slug pierces both enemies in line', ng.volt[0] > 0 && ng.volt[1] > 0, JSON.stringify(ng.volt));
   check('Arc Caster lightning chains to a nearby enemy', ng.arc > 0, `${ng.arc} chain dmg`);
@@ -266,6 +289,9 @@ try {
   check('Harpoon spears and reels the enemy in', ng.harpoon.dmg >= 70 && ng.harpoon.distAfter < 5, JSON.stringify(ng.harpoon));
   check('Shockwave Grenade: carry 5, no damage, throws enemies', ng.shock.carry === 5 && ng.shock.dmg === 0 && ng.shock.moved > 2.5, JSON.stringify(ng.shock));
   check('Mini Black Hole pulls enemies in (not the thrower) and lasts 15 s', ng.hole.to < 2.2 && ng.hole.from > 5 && ng.hole.ownerDist > 6 && ng.hole.gone && ng.hole.time === 15, JSON.stringify(ng.hole));
+  check('Slide (C): fast + low hitbox, carries ~7 m, then stands up', ng.slide.speed > 11 && ng.slide.eye < 1.0 && ng.slide.head < 1.0 && ng.slide.dist > 5 && ng.slide.standing, JSON.stringify(ng.slide));
+  check('Grapple Hook zips onto a container roof and pulls you to an enemy (with a hit)', ng.grapple.hooked && ng.grapple.topY > 3 && ng.grapple.endY > 2.5 && ng.grapple.enemyDmg >= 25 && ng.grapple.enemyDist < 2.5, JSON.stringify(ng.grapple));
+  check('Sentry Turret deploys, shoots enemies for its owner, expires after 30 s', ng.sentry.placed && ng.sentry.dmg > 30 && ng.sentry.credited && ng.sentry.backToGun && ng.sentry.expired, JSON.stringify(ng.sentry));
   check('Mortar buffed (3-shell tube, 12.5 m) + shooter-only landing marker; Ultra shells cluster', ng.mortar.mag === 3 && ng.mortar.radius >= 12 && ng.mortar.marker && ng.mortar.hiddenOtherwise && ng.ultraCluster === 3, JSON.stringify(ng.mortar));
 
   // ───────── bot tiers ─────────

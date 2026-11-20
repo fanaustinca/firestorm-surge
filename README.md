@@ -1,6 +1,6 @@
 # 🔥 Firestorm Surge
 
-A fast 3D browser multiplayer FPS built with **Three.js** (v2.4.0): 51 procedurally modelled weapons and gear items plus 15 ULTRA variants, 8 multi-level maps, 4 modes plus a Practice Range, zero-server P2P multiplayer (Trystero/WebRTC), and tactical bots that fill empty slots. No external art assets: every mesh, texture and sound is generated in code.
+A fast 3D browser multiplayer FPS built with **Three.js** (v2.5.0): 53 procedurally modelled weapons and gear items plus 15 ULTRA variants, 8 multi-level maps, 4 modes plus a Practice Range, zero-server P2P multiplayer (Trystero/WebRTC), and tactical bots that fill empty slots. No external art assets: every mesh, texture and sound is generated in code.
 
 **Play:** https://fanaustinca.github.io/firestorm-surge/
 
@@ -16,6 +16,7 @@ A fast 3D browser multiplayer FPS built with **Three.js** (v2.4.0): 51 procedura
 - **ULTRA variants:** every main firearm has a visibly upgraded ULTRA model: a single barrel fed by a 6-rocket revolving cylinder that turns one chamber per shot, a quad-tube mortar battery, a twin-nozzle 24 m flamethrower with a huge tank, a 6-barrel rotary minigun, a piercing railgun, drum-fed rifles and more. You earn it in 1v1 after the first minute of a round (rounds are now 2 min), or in other modes by surviving 30 s. It lasts until you die. Preview it from the Loadout. All Ultras use standard gun finishes (steel and brass trim, no neon).
 - **New guns (v2.2):** **Volt Rail** (coil railgun whose slugs pierce every enemy in line), **Arc Caster** (lightning rifle whose bolts chain to 2 nearby enemies), the **Pocket Rocket** sidearm (mini-rockets, good for rocket jumps). Both new primaries have Ultras: a tri-coil rail and a 4-fork tesla caster.
 - **New in v2.4:** **Ricochet Disc Launcher** (saw discs that bounce off walls 3 times and slice through everyone in their path), **Cryo Sprayer** (freezing spray: slows 50%, freezes solid after 1.4 s), **Harpoon Gun** (spears an enemy and reels them in), each with an ULTRA. Two new usables: **Shockwave Grenade** (carry 5, no damage, throws everyone flying, you included) and **Mini Black Hole** (a 15 s singularity that drags enemies within 10 m into its core).
+- **New in v2.5:** **Grapple Hook** (melee slot: LMB claw strike, RMB fires a hook that zips you to any wall, roof or enemy within 42 m; jump mid-zip to fling off), **power-slide** on **C** (fast, low hitbox, momentum carries into a slide-jump) and the **Sentry Turret** usable (30 s auto-turret, 220 HP, shoots the nearest enemy it can see). Bots use all three (new Hookshot and Engineer loadouts).
 - **Mortar:** a 3-shell tube with a 0.5 s refire, 2.3 s reload, 12.5 m blast and a much faster arc (shells land in about 1–3 s). An orange landing reticle, shown only to the shooter, marks where the shell will land; enemies still get no warning. The Ultra battery fires 6 shells, each bursting into 3 bomblets.
 - **Explosives:** rocket (7.5 m) and grenade launcher (6.5 m) have greatly increased damage and radius. A new **Land Mine** arms after 1 s and explodes when an enemy steps on it. Molotov fire shows flames only.
 - **Bot tiers:** every bot is **Casual** (slow, sloppy, never switches weapons, throws or jumps, and stands still to shoot), **Normal** (inaccurate, stands still to snipe, otherwise walks and hops while shooting, no zig-zag dodging) or **Veteran** (zig-zags and jumps while firing, swaps weapons, moves while scoped). About half of matches get exactly one Veteran. Tiers come from the match id, so every peer agrees, and nameplates show CASUAL or ★ VETERAN. Aim error drifts instead of snapping, and bots track where you just were, not where you are. Bots walk to a vantage point (upper floors, roofs, bridges, tunnels), then hold it and watch an angle; they only roam spots that are actually reachable.
@@ -26,7 +27,7 @@ A fast 3D browser multiplayer FPS built with **Three.js** (v2.4.0): 51 procedura
 - **CrazyGames SDK v3:** rewarded-ad 1-match trials plus gameplay start/stop calls. Outside CrazyGames the ad is a mocked modal.
 
 ## Controls
-`WASD` move · `Space` jump/double-jump · mouse look · `LMB` fire/swing/throw · `RMB` ADS / ability / sticky detonate · `R` reload · `1–5` slots · `F`/`V` thermal · `Tab` scoreboard · `B`/`M` loadout & shop
+`WASD` move · `Space` jump/double-jump · mouse look · `LMB` fire/swing/throw · `RMB` ADS / ability / grapple / sticky detonate · `C` slide · `R` reload · `1–5` slots · `F`/`V` thermal · `Tab` scoreboard · `B`/`M` loadout & shop
 
 ## Developer console (`F12`)
 ```js

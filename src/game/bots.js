@@ -124,10 +124,12 @@ const ARCHETYPES = [
   { name: 'Reaver', l: { 1: 'ricochet_disc', 2: 'pocket_rocket', 3: 'sledgehammer', 4: 'frag' }, range: [8, 26] },
   { name: 'Cryomancer', l: { 1: 'cryo_sprayer', 2: 'sawed_off', 3: 'karambit', 4: 'smoke_grenade' }, range: [3, 10] },
   { name: 'Whaler', l: { 1: 'harpoon_gun', 2: 'smg', 3: 'katana', 4: 'flashbang' }, range: [8, 30] },
+  { name: 'Hookshot', l: { 1: 'ak47', 2: 'sawed_off', 3: 'grapple_hook', 4: 'frag', 6: 'spring_boots' }, range: [5, 20] },
+  { name: 'Engineer', l: { 1: 'assault_rifle', 2: 'burst_pistol', 3: 'bat', 4: 'land_mine', 5: 'sentry_turret' }, range: [12, 30] },
 ];
 export function botLoadout(index, forceWeapon) {
   const a = ARCHETYPES[index % ARCHETYPES.length];
-  const l = { 1: a.l[1], 2: a.l[2], 3: a.l[3], 4: a.l[4], 5: index % 3 === 0 ? 'medkit' : index % 3 === 1 ? 'armor_plate' : null, 6: a.l[6] || null };
+  const l = { 1: a.l[1], 2: a.l[2], 3: a.l[3], 4: a.l[4], 5: a.l[5] || (index % 3 === 0 ? 'medkit' : index % 3 === 1 ? 'armor_plate' : null), 6: a.l[6] || null };
   let range = a.range;
   if (forceWeapon) { const w = WEAPON_BY_ID[forceWeapon]; if (w && w.slot <= 6) { l[w.slot] = forceWeapon; if (w.slot === 1) range = w.range ? [Math.min(8, w.range * 0.3), Math.min(60, w.range * 0.7)] : range; } }
   return { loadout: l, archetype: a.name, range, melee: !!a.melee || (forceWeapon && WEAPON_BY_ID[forceWeapon]?.kind === 'melee') };
@@ -240,6 +242,12 @@ export class BotBrain {
     else if (slot === 2 && sw && sw.mag === 0 && pw.mag > 0) slot = 1;
     else if (slot !== 2 || dist > 16) slot = 1;
     if (dist < 2.2 && wsOf(3)?.def.kind === 'melee' && pdef?.kind !== 'pellet' && pdef?.kind !== 'flame') slot = 3;
+    // grapple hook: zip in on a visible enemy, then finish with the claw / shotgun
+    const gh = wsOf(3)?.def.grapple;
+    if (this.T.swap && gh && tgt && ((visible && a.grappleCd <= 0 && dist > 8 && dist < gh.range * 0.75) || a.grapple)) slot = 3;
+    // sentry: drop it when a fight is on, or while holding a spot
+    const sen = wsOf(5)?.def.sentry;
+    if (this.T.swap && sen && wsOf(5).usableCd <= 0 && tgt && this.lastSeen && dist < 30 && a.onGround && !g.combat.sentries.some((x) => x.owner === a)) slot = 5;
     if (!this.T.swap) slot = primaryOk ? 1 : sw && (sw.mag > 0 || sw.reserve > 0 || sw.def.recharge) ? 2 : 3;   // casual: sticks to its gun until it is bone dry
     if (this.T.swap && !visible && wsOf(5) && wsOf(5).usableCd <= 0 && ((wsOf(5).def.heal && hpFrac < 0.55) || (wsOf(5).def.armor && a.armor < 10) || state === 'cover')) slot = 5;
     // grenades / mines
@@ -324,7 +332,7 @@ export class BotBrain {
   // per-tick control → intent
   control(dt) {
     const a = this.a, g = this.g, it = this.intent;
-    it.jumpPressed = false; it.firePressed = false; it.altPressed = false; it.reload = false; it.alt = false; it.climb = null;
+    it.jumpPressed = false; it.firePressed = false; it.altPressed = false; it.reload = false; it.alt = false; it.climb = null; it.slide = false;
     it.wish.set(0, 0, 0);
     if (!a.alive || this.frozen) { it.fire = false; return it; }
     this.think_t -= dt; if (this.think_t <= 0) { this.think_t = 0.15; this.think(0.15); }
@@ -420,6 +428,15 @@ export class BotBrain {
     if (semi && fire && this.prevFire) fire = false;
     it.firePressed = fire && !this.prevFire; it.fire = fire;
     this.prevFire = fire;
+    if (ws?.def.grapple && tgt && visible && !a.grapple && a.grappleCd <= 0 && a.drawT <= 0) {
+      const d = a.pos.distanceTo(tgt.pos); const aimDot = a.aimDir(V()).dot(V().subVectors(tgt.chest(V()), a.eye(V())).normalize());
+      if (d > 6 && d < ws.def.grapple.range * 0.8 && aimDot > 0.985) it.altPressed = true;
+    }
+    // power-slide into close fights / out of danger
+    if (this.T.swap && tgt && visible && a.onGround && a.slideCd <= 0 && it.wish && it.wish.lengthSq() > 0.5 && Math.hypot(a.vel.x, a.vel.z) > 4) {
+      const d = a.pos.distanceTo(tgt.pos);
+      if ((this.info.melee && d < 12 && d > 3) || ((a.hp + a.armor) / a.maxHp < 0.4 && this.state === 'cover') || Math.random() < dt * 0.15) it.slide = true;
+    }
     if (ws?.def.ability && tgt && visible && a.pos.distanceTo(tgt.pos) > 5 && a.pos.distanceTo(tgt.pos) < 16 && a.fx.scytheCd <= 0) it.altPressed = true;
     return it;
   }

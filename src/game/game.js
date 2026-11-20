@@ -8,7 +8,8 @@ import { Effects } from './effects.js';
 import { ViewModel } from './viewmodel.js';
 import { Match, MODES } from './match.js';
 import { BotBrain, botLoadout, botName, botTier } from './bots.js';
-import { buildSoldier, poseSoldier, attachWeapon, buildItem, findMarker, teamColor, buildTarget } from '../render/models.js';
+import { buildSoldier, poseSoldier, attachWeapon, buildItem, findMarker, teamColor, buildTarget, mats } from '../render/models.js';
+import { hookHead } from '../render/gearModels.js';
 import { tex } from '../render/textures.js';
 import { makePlate, drawPlate } from '../render/nameplate.js';
 import { Input } from '../core/input.js';
@@ -132,7 +133,7 @@ export class Game {
   }
 
   clearActors() {
-    for (const a of this.actors) if (a.rig) this.scene.remove(a.rig);
+    for (const a of this.actors) { if (a.rig) this.scene.remove(a.rig); if (a.rope) this.scene.remove(a.rope); }
     this.actors = []; this.brains.clear(); this.player = null;
   }
 
@@ -167,7 +168,7 @@ export class Game {
     this.brains.set(a, new BotBrain(this, a, info, tier ?? skill ?? 'normal'));
     return a;
   }
-  removeActor(a) { if (a.rig) this.scene.remove(a.rig); this.actors = this.actors.filter((x) => x !== a); this.brains.delete(a); }
+  removeActor(a) { if (a.rope) this.scene.remove(a.rope); if (a.rig) this.scene.remove(a.rig); this.actors = this.actors.filter((x) => x !== a); this.brains.delete(a); }
 
   respawnActor(a) {
     if (a.isTarget) { a.respawn(a.home, 0); a.spawnProtect = 0; if (a.rig) { a.rig.visible = true; a.deathT = 0; } return; }
@@ -313,8 +314,11 @@ export class Game {
   onProjectile(owner, p) { if (this.owns(owner) && this.net.connected) this.net.event({ t: 'proj', id: p.id, a: owner.id, w: p.def.id, k: p.kind, p: p.pos.toArray(), v: p.vel.toArray(), f: p.fuse }); }
   onWorldEvent(type, d) {
     if (!this.net.connected) return;
-    if (type === 'boom' || type === 'smoke' || type === 'flash' || type === 'fire' || type === 'ring' || type === 'arc' || type === 'shock' || type === 'vortex' || type === 'barricade' || type === 'barricade_down') this.net.event({ t: 'w:' + type, ...d });
+    if (type === 'boom' || type === 'smoke' || type === 'flash' || type === 'fire' || type === 'ring' || type === 'arc' || type === 'shock' || type === 'vortex' || type === 'barricade' || type === 'barricade_down' || type === 'sentry' || type === 'sentry_down') this.net.event({ t: 'w:' + type, ...d });
   }
+  onGrapple(a) { if (this.owns(a) && this.net.connected) { const g = a.grapple; this.net.event({ t: 'rope', a: a.id, to: g.to.toArray().map((x) => +x.toFixed(2)), act: g.actor?.id || null, fly: g.fly }); a.ropeSent = true; } }
+  onSentryShot(s, o, dir, muzzle) { if (this.net.connected) this.net.event({ t: 'shot', a: s.owner.id, w: 'sentry_turret', o: o.toArray().map((x) => +x.toFixed(2)), d: [dir.toArray().map((x) => +x.toFixed(4))], m: muzzle.toArray().map((x) => +x.toFixed(2)) }); }
+  onSentryHit(s, dmg) { if (this.net.connected) this.net.event({ t: 'sentry_hit', id: s.id, dmg: Math.round(dmg) }); }
   shakeFrom(pos, radius) { const d = pos.distanceTo(this.camera.position); this.shake = Math.max(this.shake, Math.max(0, 1 - d / (radius * 5)) * 0.5); }
 
   // ═════════════════ networking callbacks ═════════════════
@@ -322,11 +326,11 @@ export class Game {
   onPeerLeave(id) { const a = this.actors.find((x) => x.id === id); if (a) { this.hud.toast(`${a.name} left — bot backfilling`); this.removeActor(a); } this.rebuildRoster(); }
   onRemoteState(list) {
     for (const e of list) {
-      const [id, x, y, z, yaw, pitch, slot, wid, hp, armor, alive, team, name, isBot, speed, swing, kills, deaths] = e;
+      const [id, x, y, z, yaw, pitch, slot, wid, hp, armor, alive, team, name, isBot, speed, swing, kills, deaths, sliding] = e;
       let a = this.actors.find((q) => q.id === id);
       if (!a) { a = new Actor({ id, name, team, isBot: !!isBot }); a.isRemote = !isBot; a.setLoadout({ [slot]: wid || 'assault_rifle' }); a.slot = slot; if (isBot) a.botIndex = +String(id).split('-')[1] || 0; this.actors.push(a); }
       if (this.owns(a)) continue;
-      a.net = { pos: new THREE.Vector3(x, y, z), yaw, pitch, t: this.time }; a.netSpeed = speed;
+      a.net = { pos: new THREE.Vector3(x, y, z), yaw, pitch, t: this.time }; a.netSpeed = speed; a.netLow = sliding ? 1 : 0;
       if (!a.weapons[slot] || a.weapons[slot].id !== wid) { if (wid) { a.loadout[slot] = wid; a.setLoadout(a.loadout); } }
       a.slot = slot; a.hp = hp; a.armor = armor; a.name = name; a.stats.kills = kills; a.stats.deaths = deaths;
       if (alive && !a.alive) { a.alive = true; a.pos.set(x, y, z); if (a.rig) { a.rig.visible = true; a.rig.rotation.set(0, yaw, 0); } }
@@ -337,7 +341,8 @@ export class Game {
   onRemoteEvent(e) {
     const A = (id) => this.actors.find((x) => x.id === id);
     switch (e.t) {
-      case 'shot': { const a = A(e.a); const d = WEAPON_BY_ID[e.w]; if (!a || !d) return; const o = new THREE.Vector3(...e.o); const muzzle = this.muzzleWorld(a, V()); for (const dir of e.d) this.combat.addBullet(a, d, o, new THREE.Vector3(...dir), muzzle, true); a.lastShotT = this.time; this.effects.muzzle(muzzle, new THREE.Vector3(...e.d[0]), 1); sfx.shot({ assault_rifle: 'rifle', ak47: 'rifle', lmg: 'rifle', burst_rifle: 'rifle', heavy_sniper: 'heavy', dmr: 'heavy', revolver: 'heavy', smg: 'smg', sawed_off: 'shotgun', tactical_shotgun: 'shotgun' }[e.w] || 'pistol', a.chest(V())); break; }
+      case 'shot': { const a = A(e.a); const d = WEAPON_BY_ID[e.w]; if (!a || !d) return; const o = new THREE.Vector3(...e.o); const muzzle = e.m ? new THREE.Vector3(...e.m) : this.muzzleWorld(a, V());
+        if (e.m) { for (const dir of e.d) this.combat.addBullet(a, d, o, new THREE.Vector3(...dir), muzzle, true); this.effects.muzzle(muzzle, new THREE.Vector3(...e.d[0]), 0.6); sfx.shot('turret', o, 0.7); break; } for (const dir of e.d) this.combat.addBullet(a, d, o, new THREE.Vector3(...dir), muzzle, true); a.lastShotT = this.time; this.effects.muzzle(muzzle, new THREE.Vector3(...e.d[0]), 1); sfx.shot({ assault_rifle: 'rifle', ak47: 'rifle', lmg: 'rifle', burst_rifle: 'rifle', heavy_sniper: 'heavy', dmr: 'heavy', revolver: 'heavy', smg: 'smg', sawed_off: 'shotgun', tactical_shotgun: 'shotgun' }[e.w] || 'pistol', a.chest(V())); break; }
       case 'fx': { const a = A(e.a); if (!a) return; a.lastShotT = this.time; const fd = WEAPON_BY_ID[e.w]; if (fd?.kind === 'flame') for (let i = 0; i < 4; i++) this.effects.flame(this.muzzleWorld(a, V()), a.aimDir(V()).multiplyScalar(16), 1, !!fd.cryo); break; }
       case 'push': { const t = A(e.target); if (t && this.owns(t)) this.push(t, new THREE.Vector3(...e.v), e.air); break; }
       case 'chill': { const t = A(e.target); if (t && this.owns(t) && t.alive) this.chill(t, e.c, e.dt); break; }
@@ -351,6 +356,10 @@ export class Game {
       case 'w:arc': this.effects.lightning(new THREE.Vector3(...e.a), new THREE.Vector3(...e.b)); break;
       case 'w:ring': this.effects.mortarRing(new THREE.Vector3(...e.pos), e.t + 0.15, e.r); break;
       case 'w:barricade': { const o = A(e.owner); if (o) this.combat.placeBarricade(o, WEAPON_BY_ID.barricade.barricade, { pos: e.pos, alongX: e.alongX, id: e.id }); break; }
+      case 'w:sentry': { const o = A(e.owner); if (o) this.combat.placeSentry(o, WEAPON_BY_ID.sentry_turret, { pos: e.pos, yaw: e.yaw, id: e.id }); break; }
+      case 'w:sentry_down': { const s = this.combat.sentries.find((x) => x.id === e.id); if (s) this.combat.destroySentry(s, e.boom); break; }
+      case 'sentry_hit': { const s = this.combat.sentries.find((x) => x.id === e.id); if (s && !s.remote) { s.hp -= e.dmg; s.flashT = 0.12; if (s.hp <= 0) this.combat.destroySentry(s, true); } break; }
+      case 'rope': { const a = A(e.a); if (!a || this.owns(a)) return; a.netRope = e.to ? { to: new THREE.Vector3(...e.to), actor: e.act ? A(e.act) : null, t: 0, fly: e.fly || 0.1, life: 2.6 } : null; break; }
       case 'w:barricade_down': { const b = this.combat.barricades.find((x) => x.id === e.id); if (b) this.combat.destroyBarricade(b); break; }
       case 'hit': { const t = A(e.target); if (t && this.owns(t)) this.applyDamage(t, e.amount, { attacker: A(e.attacker), weapon: e.weapon, head: e.head, explosive: e.explosive, fire: e.fire, emotional: e.emotional, melee: e.melee, pos: e.pos }); break; }
       case 'kill': { const t = A(e.victim); if (!t || this.owns(t)) return; if (t.alive) { t.alive = false; t.deathT = 0; t.stats.deaths++; const k = A(e.killer); if (k && k !== t) { k.stats.kills++; } this.match.onKill(t, k); this.hud.killfeed(k, t, e.weapon, e.head); if (k === this.player) { sfx.kill(); this.hud.hitmarker(e.head, true); profile.addWeaponKill(baseId(e.weapon)); if (e.melee) k.stats.meleeKills++; if (e.explosive) k.stats.explosiveKills++; this.awardKill(t, { weapon: e.weapon, head: e.head, melee: e.melee, explosive: e.explosive }); } } break; }
@@ -398,6 +407,7 @@ export class Game {
           if (wish.lengthSq() > 0) wish.normalize();
           const wasGround = p.onGround;
           if (frozen) wish.set(0, 0, 0);
+          if (it.slide && !frozen && p.trySlide(wish)) sfx.slide?.(null);
           p.move(dt, this.map.world, wish, it.jumpPressed && !frozen, it.forward && !frozen ? p.forward(V()) : null);
           // footsteps
           const spd = Math.hypot(p.vel.x, p.vel.z); p.stepAcc = (p.stepAcc || 0) + spd * dt;
@@ -420,6 +430,7 @@ export class Game {
       if (brain && a.alive && frozenB) { a.move(dt, this.map.world, _a.set(0, 0, 0), false, null); }
       else if (brain && a.alive) {
         const it = brain.control(dt);
+        if (it.slide) a.trySlide(it.wish);
         a.move(dt, this.map.world, it.wish, it.jumpPressed, it.climb);
         this.checkUltra(a);
         this.combat.tick(a, it, dt);
@@ -427,6 +438,7 @@ export class Game {
         if (a.onGround && a.stepAcc > 2.2) { a.stepAcc = 0; sfx.footstep(a.pos, 1 + (a.mods.footstep || 0)); }
       } else if (!a.alive) { a.vel.set(0, 0, 0); }
     }
+    for (const a of this.actors) if (a.ropeSent && !a.grapple) { a.ropeSent = false; if (this.net.connected) this.net.event({ t: 'rope', a: a.id, to: null }); }
     this.combat.update(dt);
     if (this.net.connected && this.match && (this.rosterT = (this.rosterT || 0) - dt) <= 0) { this.rosterT = 0.5; if (this.net.players.join('|') !== this.rosterKey) this.rebuildRoster(); }
     this.match?.update(dt);
@@ -454,6 +466,7 @@ export class Game {
     let dy = a.net.yaw - a.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
     a.yaw += dy * k; a.pitch += (a.net.pitch - a.pitch) * k;
     a.vel.set(0, 0, 0); a.vel.x = a.netSpeed || 0; // for animation only
+    a.low += ((a.netLow || 0) - a.low) * Math.min(1, dt * 14);
     if (a.ws && a.ws.swing > 0) a.ws.swing = Math.min(1, a.ws.swing + dt * 2.5) % 1;
   }
   noclipMove(it, dt) {
@@ -484,7 +497,7 @@ export class Game {
     const p = this.player, cam = this.camera;
     // camera
     if (p.alive) {
-      cam.position.set(p.pos.x, p.pos.y + 1.6, p.pos.z);
+      cam.position.set(p.pos.x, p.pos.y + 1.6 - p.low * 0.75, p.pos.z);
       this.vm.visible = true;
     } else {
       p.deathT = (p.deathT || 0) + dt;
@@ -496,7 +509,7 @@ export class Game {
     const wob = this.wobble > 0 ? Math.sin(this.time * 22) * 0.12 * (this.wobble / 0.8) : 0;
     cam.rotation.set(p.pitch + (Math.random() - 0.5) * sh * 0.2 + wob * 0.3, p.yaw + (Math.random() - 0.5) * sh * 0.2, wob + (p.fx.stun > 0 ? Math.sin(this.time * 40) * 0.01 : 0));
     const def = p.ws?.def; const zoom = def?.scope ? 1 + (def.ads - 1) * this.vm.adsK : 1;
-    const fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(this.baseFov) / 2) / zoom)) + (p.fx.scythe > 0 ? 8 : 0);
+    const fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(this.baseFov) / 2) / zoom)) + (p.fx.scythe > 0 ? 8 : 0) + (this.fovKick = (this.fovKick || 0) + ((p.low * 6 + (p.grapple && p.grapple.t > p.grapple.fly ? 8 : 0)) - (this.fovKick || 0)) * Math.min(1, dt * 8));
     if (Math.abs(cam.fov - fov) > 0.01) { cam.fov = fov; cam.updateProjectionMatrix(); }
     cam.updateMatrixWorld();
     sfx.setListener(cam.position, _a.set(1, 0, 0).applyQuaternion(cam.quaternion));
@@ -513,6 +526,7 @@ export class Game {
     // rigs
     this.effects.thermal = p.thermal.on;
     for (const a of this.actors) if (a !== p) this.updateRig(a, dt);
+    for (const a of this.actors) this.updateRope(a, dt);
     // viewmodel
     if (p.alive) this.vm.update(dt, p, this.look, { time: this.time });
     this.effects.update(dt, this.combat.bullets);
@@ -559,6 +573,22 @@ export class Game {
     drawPlate(pl, a.name, a.hp, a.armor, a.maxHp, col, a.ultra && a.ultraFrom, a.isBot ? a.tier : null);
     const k = Math.max(1, d / 14); pl.scale.set(1.15 * k, 0.36 * k, 1);
   }
+  // grapple rope: from the hook launcher to the anchor (the hook flies out over g.fly seconds)
+  updateRope(a, dt) {
+    let g = a.grapple;
+    if (!g && a.netRope) { const r = a.netRope; r.t += dt; r.life -= dt; if (r.life <= 0 || !a.alive) a.netRope = null; else { if (r.actor?.alive) r.to.set(r.actor.pos.x, r.actor.pos.y + 1.0, r.actor.pos.z); g = r; } }
+    if (!g || !a.alive) { if (a.rope) a.rope.visible = false; return; }
+    if (!a.rope) {
+      a.rope = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1, 5).rotateX(Math.PI / 2).translate(0, 0, 0.5), new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.6, metalness: 0.4 }));
+      const hook = hookHead(mats()); if (hook) { hook.position.z = 1; a.rope.add(hook); }
+      this.scene.add(a.rope);
+    }
+    const from = a === this.player && this.vm.item ? this.muzzleWorld(a, _a) : a.alive ? this.muzzleWorld(a, _a) : a.chest(_a);
+    const k = Math.min(1, g.t / Math.max(0.01, g.fly));
+    const to = _b.copy(from).lerp(g.to, k); const len = Math.max(0.01, from.distanceTo(to));
+    a.rope.visible = true; a.rope.position.copy(from); a.rope.lookAt(to); a.rope.scale.set(1, 1, len);
+    const hk = a.rope.children[0]; if (hk) hk.scale.set(1, 1, 1 / len);
+  }
   updateRig(a, dt) {
     if (!a.rig) { a.rig = a.isTarget ? buildTarget() : buildSoldier(a.team, a.botIndex ?? 0); this.scene.add(a.rig); a.rigWeapon = null; a.plate = makePlate(); a.plate.position.y = a.isTarget ? 2.15 : 2.2; a.rig.add(a.plate); }
     const rig = a.rig;
@@ -576,7 +606,8 @@ export class Game {
       if (a.deathT > 3) rig.visible = false;
       return;
     }
-    rig.visible = true; rig.position.copy(a.pos); rig.rotation.set(0, a.yaw, 0);
+    rig.visible = true; rig.position.copy(a.pos); rig.rotation.set(0, a.yaw, 0, 'XYZ');
+    if (a.low > 0.02) { rig.position.y -= a.low * 0.55; rig.rotation.set(a.low * 0.5, a.yaw, 0, 'YXZ'); }
     const spd = a.isRemote || !this.owns(a) ? (a.netSpeed || 0) : Math.hypot(a.vel.x, a.vel.z);
     a.animPhase += dt * spd * 1.6;
     const wh = rig.userData.wheel; if (wh && a.ws) { const fired = Math.max(0, a.ws.def.mag - a.ws.mag); wh.rotation.z = -fired * Math.PI / 3; }
@@ -612,7 +643,7 @@ export class Game {
     if (MELEE.includes(id)) item.rotation.set(0, 0, -Math.PI / 2 + 0.12);
     if (id === 'slippers') item.rotation.set(0.9, 0.5, 0);
     if (id === 'fists' || id === 'tactical_gloves') item.rotation.set(0.2, Math.PI * 0.85, 0);
-    if (['blast_vest', 'thermal_goggles', 'spring_boots', 'medkit', 'ammo_pack', 'barricade', 'bandolier', 'shockwave_grenade', 'black_hole'].includes(id)) item.rotation.y = Math.PI * 0.85;
+    if (['blast_vest', 'thermal_goggles', 'spring_boots', 'medkit', 'ammo_pack', 'barricade', 'bandolier', 'shockwave_grenade', 'black_hole', 'sentry_turret'].includes(id)) item.rotation.y = Math.PI * 0.85;
     st.holder.add(g);
     const box = new THREE.Box3().setFromObject(g); const size = box.getSize(V()); const c = box.getCenter(V());
     g.position.set(-c.x, -box.min.y + 0.05 + Math.max(0, 0.3 - size.y) * 0.5, -c.z);

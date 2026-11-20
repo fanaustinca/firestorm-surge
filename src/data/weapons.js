@@ -118,6 +118,10 @@ add({ id: 'shurikens', name: 'Shurikens', slot: 3, price: 650, speed: 1.10,
 add({ id: 'slippers', name: 'Slippers', slot: 3, price: 450, speed: 1.10,
   kind: 'projectile', proj: 'slipper', mode: 'semi', interval: 0.4, dmg: 75, head: 150, mag: 1, reserve: Infinity, cooldown: 4.5, vel: 42, range: 60,
   arc: true, emotional: true, desc: 'One throw. EMOTIONAL DAMAGE.' });
+add({ id: 'grapple_hook', name: 'Grapple Hook', slot: 3, price: 900, speed: 1.08,
+  kind: 'melee', interval: 0.55, dmg: 50, head: 80, reach: 2.4, arc: 0.7,
+  grapple: { range: 42, speed: 25, accel: 95, time: 1.9, cooldown: 1.4, hitDmg: 25 },
+  desc: 'LMB: claw strike. RMB: fire the hook and zip to any wall, roof or enemy (42 m).' });
 
 // ───────────── Slot 4: Throwables ─────────────
 add({ id: 'frag', name: 'Frag Grenade', slot: 4, free: true, price: 0, speed: 1.05,
@@ -153,6 +157,10 @@ add({ id: 'shockwave_grenade', name: 'Shockwave Grenade', slot: 5, price: 600, s
 add({ id: 'black_hole', name: 'Mini Black Hole', slot: 5, price: 1000, speed: 1.05,
   kind: 'throwable', proj: 'singularity', carry: 1, fuse: 1.0, dmg: 0,
   vortex: { radius: 10, time: 15, pull: 8 }, desc: 'Opens a singularity for 15 s that drags every enemy within 10 m into its core.' });
+add({ id: 'sentry_turret', name: 'Sentry Turret', slot: 5, price: 1100, speed: 1.0,
+  kind: 'usable', use: 0.6, cooldown: 45, dmg: 8, head: 12, vel: 450, range: 32,
+  sentry: { hp: 220, time: 30, range: 30, interval: 0.14, dmg: 8, spread: 0.02, turn: 4.5 },
+  desc: 'Deploys an auto-turret for 30 s (220 HP). Shoots the nearest enemy it can see within 30 m.' });
 
 // ───────────── Slot 6: Wearables ─────────────
 add({ id: 'tactical_gloves', name: 'Tactical Gloves', slot: 6, free: true, slotFree: true, price: 0,
@@ -222,5 +230,4 @@ export const HOLIDAY_SKINS = [
   { id: 'candycane', month: 11, weapon: 'katana', name: 'Candy Cane Katana' },
 ];
 
-// Spec tally: 39 items + 3 slot freebies (Med Kit, Ammo Pack, Tactical Gloves) + Land Mine = 43 entries.
-if (W.length !== 43) console.warn('weapon table expected 43 entries, has', W.length);
+

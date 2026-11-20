@@ -77,7 +77,7 @@ export class Net {
     const list = [];
     for (const a of this.g.actors) {
       if (!this.owns(a)) continue;
-      list.push([a.id, +a.pos.x.toFixed(2), +a.pos.y.toFixed(2), +a.pos.z.toFixed(2), +a.yaw.toFixed(3), +a.pitch.toFixed(3), a.slot, a.loadout[a.slot] || '', Math.round(a.hp), Math.round(a.armor), a.alive ? 1 : 0, a.team, a.name, a.isBot ? 1 : 0, +(Math.hypot(a.vel.x, a.vel.z)).toFixed(1), a.ws?.swing ? 1 : 0, a.stats.kills, a.stats.deaths]);
+      list.push([a.id, +a.pos.x.toFixed(2), +a.pos.y.toFixed(2), +a.pos.z.toFixed(2), +a.yaw.toFixed(3), +a.pitch.toFixed(3), a.slot, a.loadout[a.slot] || '', Math.round(a.hp), Math.round(a.armor), a.alive ? 1 : 0, a.team, a.name, a.isBot ? 1 : 0, +(Math.hypot(a.vel.x, a.vel.z)).toFixed(1), a.ws?.swing ? 1 : 0, a.stats.kills, a.stats.deaths, a.slideT > 0 ? 1 : 0]);
     }
     this.stA.send({ m: this.matchId, l: list }).catch(() => {});
     this.matchAcc = (this.matchAcc || 0) + 1;

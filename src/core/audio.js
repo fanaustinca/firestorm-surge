@@ -97,6 +97,8 @@ class Sfx {
       case 'bow': this._tone(g, t, 0.12, 300, 90, 'triangle', 0.4); this._noise(g, t, 0.08, 2000, 800, 2, 'bandpass', 0.25); break;
       case 'throw': this._noise(g, t, 0.18, 600, 2400, 3, 'bandpass', 0.35); break;
       case 'taser': this._noise(g, t, 0.35, 6000, 3000, 4, 'bandpass', 0.6); this._tone(g, t, 0.35, 90, 90, 'sawtooth', 0.25); break;
+      case 'grapple': this._tone(g, t, 0.22, 1900, 380, 'sawtooth', 0.22); this._noise(g, t, 0.18, 3500, 1200, 2, 'bandpass', 0.35); break;
+      case 'turret': this._noise(g, t, 0.07, 4200, 900, 1, 'bandpass', 0.55); this._tone(g, t, 0.04, 220, 90, 'square', 0.2); break;
       case 'cryo': this._noise(g, t, 0.14, 5200, 2600, 0.6, 'highpass', 0.32); break;
       case 'flame': this._noise(g, t, 0.14, 700, 400, 0.5, 'lowpass', 0.5); break;
       default: this._noise(g, t, 0.2, 2500, 300, 0.7, 'bandpass', 1);
@@ -107,6 +109,7 @@ class Sfx {
     this._noise(g, t, 1.4, 900, 60, 0.5, 'lowpass', 1.5); this._tone(g, t, 0.6, 80, 25, 'sine', 1.2); this._noise(g, t, 0.15, 4000, 1000, 0.6, 'bandpass', 0.6);
   }
   whoosh(pos, heavy = false) { if (!this._ok('whoosh', 0.05)) return; const { g } = this._out(pos, 0.6, 30); const t = this.ctx.currentTime; this._noise(g, t, heavy ? 0.35 : 0.2, heavy ? 400 : 900, heavy ? 1600 : 3000, 2.5, 'bandpass', 0.6); }
+  slide(pos) { if (!this._ok('slide', 0.2)) return; const { g } = this._out(pos, 0.5, 25); const t = this.ctx.currentTime; this._noise(g, t, 0.55, 900, 300, 0.8, 'lowpass', 0.6); }
   thud(pos) { if (!this._ok('thud', 0.03)) return; const { g } = this._out(pos, 0.9, 30); const t = this.ctx.currentTime; this._tone(g, t, 0.12, 150, 50, 'sine', 0.9); this._noise(g, t, 0.08, 1200, 300, 1, 'lowpass', 0.5); }
   slap(pos) { if (!this._ok('slap', 0.03)) return; const { g } = this._out(pos, 1.2, 40); const t = this.ctx.currentTime; this._noise(g, t, 0.09, 3000, 1500, 1.2, 'highpass', 1.4); this._tone(g, t, 0.08, 500, 200, 'triangle', 0.5); }
   hit(head = false) { if (!this._ok('hit', 0.03)) return; const { g } = this._out(null, 0.5); const t = this.ctx.currentTime; this._tone(g, t, head ? 0.12 : 0.06, head ? 1800 : 1100, head ? 1500 : 900, 'square', 0.25); if (head) this._tone(g, t + 0.04, 0.1, 2600, 2400, 'sine', 0.2); }

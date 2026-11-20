@@ -41,12 +41,14 @@ export class Input {
       alt: this.mouse.right || !!v.alt,
       altPressed: this.mouse.rightPressed || !!v.altPressed,
       reload: this.pressed.has('KeyR') || !!v.reload,
+      slide: this.pressed.has('KeyC') || this.pressed.has('ControlLeft') || !!v.slide,
       dx: this.mouse.dx * this.sens, dy: this.mouse.dy * this.sens,
     };
     if (v.jumpPressed) v.jumpPressed = false;
     if (v.firePressed) v.firePressed = false;
     if (v.altPressed) v.altPressed = false;
     if (v.reload) v.reload = false;
+    if (v.slide) v.slide = false;
     return s;
   }
   endFrame() { this.pressed.clear(); this.mouse.dx = this.mouse.dy = 0; this.mouse.leftPressed = this.mouse.rightPressed = false; }

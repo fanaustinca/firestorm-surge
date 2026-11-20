@@ -28,7 +28,7 @@ export class Hud {
       <div id="killban"></div>
       <div id="scoreboard"></div>
       <div id="spectate"></div>
-      <div id="hint">WASD move · Space jump · Mouse aim · LMB fire · RMB aim/ability · R reload · 1–5 slots · F thermal · Tab scores · B loadout</div>`;
+      <div id="hint">WASD move · Space jump · Mouse aim · LMB fire · RMB aim/ability · C slide · R reload · 1–5 slots · F thermal · Tab scores · B loadout</div>`;
     this.el = {};
     for (const id of ['xhair', 'hitmark', 'dmgdir', 'sc-l', 'sc-r', 'timer', 'sclabel', 'radar', 'killfeed', 'hpbar', 'arbar', 'hpnum', 'status', 'wname', 'mag', 'res', 'reload', 'slots', 'toast', 'center-msg', 'useprog', 'scope', 'adsdot', 'ov-flash', 'ov-thermal', 'ov-stun', 'ov-low', 'ov-dmg', 'emo', 'scoreboard', 'spectate', 'hint']) this.el[id] = document.getElementById(id);
     this.rctx = this.el.radar.getContext('2d');
@@ -123,7 +123,7 @@ export class Hud {
     if (d) {
       this.el.wname.textContent = d.name + (g.profile?.onTrial(d.id) ? ' · TRIAL' : '');
       let mag = '', res = '';
-      if (d.kind === 'melee') { mag = '∞'; res = d.ability ? (a.fx.scytheCd > 0 ? `RMB ${Math.ceil(a.fx.scytheCd)}s` : 'RMB READY') : ''; }
+      if (d.kind === 'melee') { mag = '∞'; res = d.ability ? (a.fx.scytheCd > 0 ? `RMB ${Math.ceil(a.fx.scytheCd)}s` : 'RMB READY') : d.grapple ? (a.grapple ? 'HOOKED' : a.grappleCd > 0 ? `HOOK ${a.grappleCd.toFixed(1)}s` : 'RMB HOOK') : ''; }
       else if (d.kind === 'throwable') { mag = ws.count; res = ws.cook >= 0 && d.cookable ? `${Math.max(0, d.fuse - ws.cook).toFixed(1)}s` : 'LEFT'; }
       else if (d.kind === 'usable') { mag = ws.usableCd > 0 ? Math.ceil(ws.usableCd) + 's' : 'READY'; res = ''; }
       else if (d.id === 'flamethrower') { mag = Math.ceil(ws.mag); res = `/ ${ws.reserve} FUEL`; }
@@ -149,6 +149,7 @@ export class Hud {
         if (w.def.kind === 'usable') cd = w.usableCd / w.def.cooldown;
         if (w.def.id === 'slippers' && w.mag === 0) cd = w.recharge / w.def.cooldown;
         if (w.def.ability && a.fx.scytheCd > 0) cd = a.fx.scytheCd / w.def.ability.cooldown;
+        if (w.def.grapple && a.grappleCd > 0) cd = a.grappleCd / w.def.grapple.cooldown;
         if (w.def.id === 'shurikens') cnt = '×' + w.mag;
       }
       if (s === 6 && a.loadout[6] === 'thermal_goggles') { cd = 1 - a.thermal.battery / 8; el.classList.toggle('active', a.thermal.on); }

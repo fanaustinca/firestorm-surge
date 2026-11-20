@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { rayCylinder, raySphere, rayBox } from '../world/collision.js';
 import { RADIUS } from './actor.js';
 import { projectileMesh } from '../render/models.js';
-import { barricadeMesh } from '../render/gearModels.js';
+import { barricadeMesh, sentryMesh } from '../render/gearModels.js';
 import { mats } from '../render/models.js';
 import { sfx } from '../core/audio.js';
 import { WEAPON_BY_ID, BASE_HP, MAX_ARMOR } from '../data/weapons.js';
@@ -37,7 +37,8 @@ export class Combat {
     for (const p of this.projs || []) if (p.mesh) this.g.scene.remove(p.mesh);
     for (const b of this.barricades || []) this.removeBarricade(b, true);
     for (const v of this.vortices || []) this.g.effects?.vortexEnd(v);
-    this.bullets = []; this.projs = []; this.clouds = []; this.fires = []; this.barricades = []; this.vortices = []; this.seq = 1; this.shotCount = 0;
+    for (const s of this.sentries || []) this.removeSentry(s);
+    this.bullets = []; this.projs = []; this.clouds = []; this.fires = []; this.barricades = []; this.vortices = []; this.sentries = []; this.seq = 1; this.shotCount = 0;
   }
   get world() { return this.g.map.world; }
   enemiesOf(a) { return this.g.actors.filter((t) => t !== a && t.alive && this.g.hostile(a, t)); }
@@ -203,7 +204,7 @@ export class Combat {
       const along = _c.x * dir.x + _c.z * dir.z;
       if (along < -1 || along > maxT + 1.5) continue;
       const head = raySphere(o, dir, t.headPos(_d), opts.headR || 0.17);
-      const body = rayCylinder(o, dir, t.pos, opts.bodyR || 0.36, 0, 1.48);
+      const body = rayCylinder(o, dir, t.pos, opts.bodyR || 0.36, 0, t.bodyTop ? t.bodyTop() : 1.48);
       let tt = null, isHead = false;
       if (head !== null && head <= maxT && (body === null || head <= body + 0.05)) { tt = head; isHead = true; }
       else if (body !== null && body <= maxT) tt = body;
@@ -236,6 +237,7 @@ export class Combat {
       } else if (wh) {
         b.pos.copy(wh.point);
         if (wh.box?.kind === 'barricade' && !b.remote) this.damageBarricade(wh.box.ref, b.dmg);
+        else if (wh.box?.kind === 'sentry' && !b.remote) this.damageSentry(wh.box.ref, b.dmg, b.owner);
         else if (wh.box?.kind === 'barricade') { /* visual only */ }
         this.g.effects.sparks(wh.point, wh.normal, 5);
         if (b.owner === this.g.player || b.pos.distanceTo(this.g.camera.position) < 25) this.g.effects.dust(wh.point, wh.normal);
@@ -379,6 +381,7 @@ export class Combat {
         p.pos.copy(pos); p.vel.set(0, 0, 0); p.stuck = { world: true }; p.fuse = p.t + 4; p.mesh.position.copy(pos);
         this.g.effects.sparks(pos, n, 3);
         if (box?.kind === 'barricade') this.damageBarricade(box.ref, p.def.dmg);
+        if (box?.kind === 'sentry' && !p.remote) this.damageSentry(box.ref, p.def.dmg, p.owner);
         return false;
     }
   }
@@ -433,6 +436,7 @@ export class Combat {
       this.g.push(t, V(dir.x * kb, kb * 0.5, dir.z * kb));
     }
     for (const b of [...this.barricades]) if (b.center.distanceTo(pos) < sp.radius + 1) this.damageBarricade(b, sp.max * 1.5);
+    for (const s of [...this.sentries]) { const dd = s.center.distanceTo(pos); if (dd < sp.radius + 0.6) this.damageSentry(s, direct === null && dd < 1.2 ? d.dmg : sp.min + (sp.max - sp.min) * (1 - dd / (sp.radius + 0.6)), p.owner); }
   }
 
   // Shockwave grenade: no damage, a big radial throw (the thrower included — rocket-jump style)
@@ -578,11 +582,30 @@ export class Combat {
   // ═════════════════ melee ═════════════════
   tickMelee(a, ws, it) {
     const d = ws.def;
+    if (d.grapple && it.altPressed) { if (a.grapple) a.releaseGrapple(false); else if (a.grappleCd <= 0) this.fireGrapple(a, d); }
     if (it.altPressed && d.ability && a.fx.scytheCd <= 0) { a.fx.scythe = d.ability.time; a.fx.scytheCd = d.ability.cooldown; sfx.whoosh(null, true); this.g.onAbility?.(a); }
     if (!it.fire || ws.cooldown > 0) return;
     ws.cooldown = d.interval; ws.swing = 0.001; ws.pendingHit = Math.min(0.12, d.interval * 0.35);
     sfx.whoosh(a === this.g.player ? null : a.chest(V()), d.interval > 0.8);
     this.g.onFired(a, d, null, a.aimDir(V()));
+  }
+  // Grapple Hook (RMB): latch onto the first wall / roof / enemy along the aim line and zip to it
+  fireGrapple(a, d) {
+    const cfg = d.grapple; const eye = a.eye(V()), dir = a.aimDir(V());
+    const wh = this.world.raycast(eye, dir, cfg.range, (b) => !b.noCollide);
+    const ah = this.rayActors(eye, dir, wh ? wh.t : cfg.range, a, { bodyR: 0.5, headR: 0.25 });
+    const muzzle = this.g.muzzleWorld(a, V());
+    sfx.shot('grapple', a === this.g.player ? null : a.chest(V()), 0.8);
+    a.lastShotT = this.g.time;
+    if (!ah && !wh) { a.grappleCd = 0.45; this.g.effects.tether(muzzle, eye.clone().addScaledVector(dir, cfg.range * 0.6), 0.18, 0x9aa3ad, 0.012); return false; }
+    a.grappleCd = cfg.cooldown; a.slideT = 0;
+    const t = ah ? ah.t : wh.t;
+    const to = ah ? ah.actor.pos.clone().setY(ah.actor.pos.y + 1.0) : wh.point.clone().addScaledVector(wh.normal, 0.35);
+    a.grapple = { to, actor: ah ? ah.actor : null, t: 0, fly: Math.min(0.3, t / 140), cfg, id: this.seq++ };
+    if (ah) { this.g.damage(ah.actor, cfg.hitDmg, { attacker: a, weapon: d.id, pos: ah.actor.chest(V()), dir, melee: true }); this.g.effects.blood(ah.actor.chest(V())); }
+    else this.g.effects.sparks(wh.point, wh.normal, 6);
+    this.g.onGrapple?.(a);
+    return true;
   }
   meleeHit(a, ws) {
     if (!a.alive) return;
@@ -615,6 +638,7 @@ export class Combat {
     const wh = this.world.raycast(eye, dir, d.reach + 0.2);
     if (wh) {
       if (wh.box?.kind === 'barricade') { if (d.breaker) this.destroyBarricade(wh.box.ref); else this.damageBarricade(wh.box.ref, d.dmg); }
+      if (wh.box?.kind === 'sentry') this.damageSentry(wh.box.ref, d.breaker ? 999 : d.dmg, a);
       this.g.effects.sparks(wh.point, wh.normal, 6); sfx.thud(wh.point);
     }
   }
@@ -711,6 +735,7 @@ export class Combat {
     if (d.armor) { a.armor = MAX_ARMOR; if (a === this.g.player) sfx.reload(1); }
     if (d.adrenaline) { a.fx.adrenaline = d.adrenaline.time; if (a === this.g.player) sfx.heal(); }
     if (d.barricade) this.placeBarricade(a, d.barricade);
+    if (d.sentry) this.placeSentry(a, d);
     this.g.onUsed?.(a, d);
     this.g.after(0.25, () => { if (a.slot === 5 && a.alive) a.switchSlot(a.prevSlot !== 5 ? a.prevSlot : 1); });
   }
@@ -740,7 +765,88 @@ export class Combat {
   }
   removeBarricade(b, silent) { if (b.removed) return; b.removed = true; this.world.remove(b.box); this.g.scene.remove(b.mesh); this.barricades = this.barricades.filter((x) => x !== b); void silent; }
 
-  update(dt) { this.updateBullets(dt); this.updateProjs(dt); this.updateAreas(dt); }
+  // ═════════════════ sentry turret ═════════════════
+  // The owner's client aims + fires (bullets credited to the owner); other clients mirror the aim for visuals.
+  placeSentry(a, d, remote = null) {
+    for (const s of [...this.sentries]) if (s.owner === a) this.destroySentry(s);
+    const cfg = d.sentry; const f = a.forward(V());
+    let pos;
+    if (remote) pos = new THREE.Vector3(...remote.pos);
+    else {
+      // drop it 1.3 m ahead (or at your feet if a wall is in the way)
+      const eye = a.pos.clone().setY(a.pos.y + 0.6); const wh = this.world.raycast(eye, f, 1.8, (b) => !b.noCollide);
+      pos = a.pos.clone().addScaledVector(f, wh ? Math.max(0, wh.t - 0.6) : 1.3);
+      pos.y = this.world.groundHeightAt(pos.x, pos.z, a.pos.y + 0.5);
+    }
+    const yaw = remote ? remote.yaw : a.yaw;
+    const mesh = sentryMesh(mats()); mesh.position.copy(pos); mesh.rotation.y = yaw; this.g.scene.add(mesh);
+    mesh.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    const box = this.world.addCS(pos.x, pos.y + 0.5, pos.z, 0.62, 1.0, 0.62, { kind: 'sentry' });
+    const s = { id: remote?.id || `${a.id}:sen:${this.seq++}`, owner: a, def: d, cfg, pos, center: pos.clone().setY(pos.y + 0.75), yaw, pitch: 0, hp: cfg.hp, t: 0, cd: 0.6, scanT: 0, target: null,
+      mesh, head: mesh.getObjectByName('head'), muzzles: [], box, remote: !!remote, flashT: 0 };
+    mesh.traverse((o) => { if (o.name === 'muzzle') s.muzzles.push(o); });
+    s.muzzleIdx = 0; s.eye = mesh.getObjectByName('eye');
+    box.ref = s; this.sentries.push(s);
+    if (!remote) this.g.onWorldEvent?.('sentry', { pos: pos.toArray().map((x) => +x.toFixed(2)), yaw: +yaw.toFixed(3), id: s.id, owner: a.id });
+    sfx.thud(pos); sfx.beep(pos);
+    return s;
+  }
+  damageSentry(s, dmg, attacker) {
+    if (!s || s.removed) return;
+    if (attacker && attacker !== s.owner && !this.g.hostile(attacker, s.owner)) return;
+    if (attacker === s.owner) return;
+    s.flashT = 0.12; this.g.effects.sparks(s.center, null, 4);
+    if (s.remote) { this.g.onSentryHit?.(s, dmg); s.hp -= dmg; return; }   // the owner's client keeps the real HP
+    s.hp -= dmg; if (s.hp <= 0) this.destroySentry(s, true);
+  }
+  destroySentry(s, boom = false) {
+    if (!s || s.removed) return;
+    if (boom) { this.g.effects.explosion(s.center, 1.3, { small: true }); this.g.effects.sparks(s.center, null, 24); sfx.explosion(s.center, 0.4); }
+    else this.g.effects.sparks(s.center, null, 10, 0x80e0ff);
+    this.removeSentry(s);
+    if (!s.remote) this.g.onWorldEvent?.('sentry_down', { id: s.id, boom });
+  }
+  removeSentry(s) { if (s.removed) return; s.removed = true; this.world.remove(s.box); this.g.scene.remove(s.mesh); this.sentries = this.sentries.filter((x) => x !== s); }
+  updateSentries(dt) {
+    for (const s of [...this.sentries]) {
+      const cfg = s.cfg; s.t += dt; s.cd -= dt; s.flashT -= dt;
+      if (!s.remote && (s.t >= cfg.time || !this.g.actors.includes(s.owner))) { this.destroySentry(s, false); continue; }
+      // target: nearest visible enemy of the owner (re-evaluated 5×/s)
+      const eye = _a.copy(s.pos).setY(s.pos.y + 0.85);
+      if ((s.scanT -= dt) <= 0) {
+        s.scanT = 0.2; let best = null, bd = cfg.range;
+        for (const t of this.g.actors) {
+          if (!t.alive || !this.g.hostile(s.owner, t) || t.spawnProtect > 0) continue;
+          const c = t.chest(_b); const dd = c.distanceTo(eye); if (dd >= bd) continue;
+          if (!this.world.lineOfSight(eye, c) || this.clouds.some((cl) => cl.pos.distanceTo(c) < cl.radius * 0.85)) continue;
+          bd = dd; best = t;
+        }
+        s.target = best;
+      }
+      let aligned = false;
+      if (s.target && s.target.alive) {
+        const c = s.target.chest(_b); const dx = c.x - eye.x, dy = c.y - eye.y, dz = c.z - eye.z;
+        const wantYaw = Math.atan2(-dx, -dz), wantPitch = Math.atan2(dy, Math.hypot(dx, dz));
+        let dyaw = wantYaw - s.yaw; while (dyaw > Math.PI) dyaw -= Math.PI * 2; while (dyaw < -Math.PI) dyaw += Math.PI * 2;
+        const step = cfg.turn * dt; s.yaw += THREE.MathUtils.clamp(dyaw, -step, step); s.pitch += THREE.MathUtils.clamp(wantPitch - s.pitch, -step, step);
+        aligned = Math.abs(dyaw) < 0.09 && Math.abs(wantPitch - s.pitch) < 0.09;
+      } else { s.yaw += dt * 0.6; s.pitch *= 1 - Math.min(1, dt * 3); }   // idle scan
+      if (s.head) { s.head.rotation.y = s.yaw - s.mesh.rotation.y; const tilt = s.head.getObjectByName('tilt'); if (tilt) tilt.rotation.x = s.pitch; }
+      if (s.eye) s.eye.material.emissiveIntensity = s.target ? 3 + Math.sin(this.g.time * 30) : 1.2;
+      if (!s.remote && aligned && s.cd <= 0) {
+        s.cd = cfg.interval;
+        const dir = V(-Math.sin(s.yaw) * Math.cos(s.pitch), Math.sin(s.pitch), -Math.cos(s.yaw) * Math.cos(s.pitch));
+        s.mesh.updateMatrixWorld(true); const mz = s.muzzles[s.muzzleIdx++ % Math.max(1, s.muzzles.length)]; const muzzle = mz ? mz.getWorldPosition(V()) : eye.clone();
+        const shot = jitter(dir, cfg.spread);
+        this.addBullet(s.owner, s.def, eye.clone(), shot, muzzle);
+        this.g.effects.muzzle(muzzle, dir, 0.6);
+        sfx.shot('turret', s.pos, 0.7);
+        this.g.onSentryShot?.(s, eye, shot, muzzle);
+      }
+    }
+  }
+
+  update(dt) { this.updateBullets(dt); this.updateProjs(dt); this.updateAreas(dt); this.updateSentries(dt); }
 }
 
 export { WEAPON_BY_ID };

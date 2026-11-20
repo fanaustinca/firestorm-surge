@@ -53,7 +53,7 @@ export class UI {
             <button class="btn wide ghost" id="settings">SETTINGS</button>
           </aside>
         </div>
-        <footer>WASD · Space · Mouse · LMB fire · RMB aim/ability · R reload · 1–5 slots · F/V thermal · Tab scores · B/M loadout <span class="ver">Firestorm Surge v${VERSION}</span></footer>
+        <footer>WASD · Space · Mouse · LMB fire · RMB aim/ability · C slide · R reload · 1–5 slots · F/V thermal · Tab scores · B/M loadout <span class="ver">Firestorm Surge v${VERSION}</span></footer>
       </div>`;
     this.root.style.display = 'block';
     this.root.querySelectorAll('[data-mode]').forEach((b) => b.onclick = () => { this.sel.mode = b.dataset.mode; sfx.ui(); this.showMenu(); });

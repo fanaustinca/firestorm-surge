@@ -43,6 +43,16 @@ if (ok) {
   void hit;
   const hp = await B.evaluate(() => DEV.game.player.hp);
   console.log(hp < 150 ? '✅' : '❌', 'B took damage from A over the network, hp =', hp);
+  // v2.5: grapple rope + sentry turret are mirrored on the other peer
+  const aId = info[0].me;
+  await A.evaluate(async (id) => { DEV.equip(3, 'grapple_hook'); DEV.select(3); await new Promise((r) => setTimeout(r, 400)); DEV.game.player.grappleCd = 0; DEV.aimAt(id, 'body'); DEV.input({ altPressed: true }); await new Promise((r) => setTimeout(r, 60)); DEV.input(null); }, bId);
+  let rope = false; for (let i = 0; i < 12 && !rope; i++) { await wait(100); rope = await B.evaluate((id) => !!DEV.game.actors.find((x) => x.id === id)?.netRope, aId); }
+  console.log(rope ? '✅' : '❌', "B sees A's grapple rope");
+  await wait(1500);
+  await A.evaluate(async () => { DEV.equip(5, 'sentry_turret'); DEV.select(5); await new Promise((r) => setTimeout(r, 400)); DEV.input({ fire: true, firePressed: true }); await new Promise((r) => setTimeout(r, 60)); DEV.input(null); });
+  let sen = 0; for (let i = 0; i < 20 && !sen; i++) { await wait(150); sen = await B.evaluate(() => DEV.game.combat.sentries.length); }
+  const hpS0 = await B.evaluate(() => DEV.game.player.hp); await wait(2500); const hpS1 = await B.evaluate(() => DEV.game.player.hp);
+  console.log(sen === 1 ? '✅' : '❌', "B sees A's sentry turret", { sentries: sen, hpBefore: hpS0, hpAfter: hpS1 });
 }
 if (ok) {
   // B stays in the room but leaves the match (results/menu) → A must take over: a bot fills B's slot, owned + simulated by A

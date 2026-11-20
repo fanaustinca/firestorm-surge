@@ -396,7 +396,78 @@ function black_hole(m) {
   P(g, sphere(0.014, 10, 8), glow, 0, 0.05, 0);
   return g;
 }
+
+// ───────── Grapple Hook (slot 3): grip at origin, launcher + 3-tine hook along +Y ─────────
+function hookTines(g, m, y0, len = 0.12) {
+  P(g, cylY(0.008, 0.01, len, 10), m.steel, 0, y0 + len / 2, 0);
+  P(g, sphere(0.014, 12, 10), m.steel, 0, y0 + len + 0.004, 0);
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * PI * 2; const c = Math.cos(a), sn = Math.sin(a);
+    const pts = [[0, y0 + len - 0.01, 0], [c * 0.03, y0 + len - 0.02, sn * 0.03], [c * 0.055, y0 + len - 0.06, sn * 0.055], [c * 0.05, y0 + len - 0.1, sn * 0.05], [c * 0.036, y0 + len - 0.115, sn * 0.036]];
+    P(g, tube(pts, 0.0065, 24, 6), m.steel);
+    P(g, cylY(0.0065, 0.0005, 0.02, 6), m.steel, c * 0.034, y0 + len - 0.124, sn * 0.034, PI);
+  }
+}
+export function hookHead(m) {
+  const g = new THREE.Group(); const inner = new THREE.Group(); g.add(inner);
+  hookTines(inner, m, -0.12, 0.12); inner.rotation.x = PI / 2;   // point along +Z (rope direction)
+  inner.scale.setScalar(1.6);
+  return g;
+}
+function grapple_hook(m) {
+  const g = new THREE.Group();
+  const body = std({ color: 0x3a4148, metalness: 0.7, roughness: 0.4 });
+  P(g, cylY(0.019, 0.017, 0.13, 14), m.grip, 0, -0.05, 0).scale.set(0.85, 1, 1.1);          // grip
+  P(g, rbox(0.012, 0.06, 0.04, 0.004), m.darksteel, 0, -0.01, 0.035);                          // trigger guard
+  P(g, rbox(0.052, 0.07, 0.07, 0.012), body, 0, 0.045, -0.004);                                // receiver
+  P(g, cylY(0.026, 0.03, 0.2, 18), body, 0, 0.17, 0);                                          // launch tube
+  for (const y of [0.1, 0.17, 0.24]) P(g, torus(0.03, 0.004, 20).rotateX(PI / 2), m.orange, 0, y, 0);
+  P(g, cylX(0.038, 0.038, 0.035, 22), m.darksteel, 0.045, 0.06, 0);                            // rope spool
+  P(g, torus(0.03, 0.007, 22).rotateY(PI / 2), m.cloth, 0.045, 0.06, 0);
+  P(g, cylX(0.012, 0.012, 0.05, 10), m.steel, 0.04, 0.06, 0);
+  P(g, rbox(0.01, 0.03, 0.012, 0.002), m.reddot, 0, 0.09, -0.032);                              // charge light
+  hookTines(g, m, 0.27, 0.11);
+  marker(g, 'muzzle', 0, 0.33, 0);
+  return g;
+}
+
+// ───────── Sentry Turret (slot 5): deployed tripod gun (≈1.1 m) + the carried case ─────────
+export function sentryMesh(m) {
+  const g = new THREE.Group();
+  const armor = std({ color: 0x55603f, metalness: 0.45, roughness: 0.55, map: tex('metal') });
+  const legTop = new THREE.Vector3(0, 0.58, 0);
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * PI * 2 + PI / 6; const foot = new THREE.Vector3(Math.cos(a) * 0.42, 0.02, Math.sin(a) * 0.42);
+    P(g, tube([legTop.toArray(), [foot.x * 0.6, 0.3, foot.z * 0.6], foot.toArray()], 0.022, 12, 8), m.darksteel);
+    P(g, cylY(0.04, 0.05, 0.03, 12), m.rubber, foot.x, 0.015, foot.z);
+  }
+  P(g, cylY(0.07, 0.09, 0.14, 20), m.darksteel, 0, 0.56, 0);
+  P(g, cylY(0.1, 0.1, 0.03, 24), m.hazard, 0, 0.64, 0);
+  const head = new THREE.Group(); head.name = 'head'; head.position.y = 0.66; g.add(head);
+  P(head, cylY(0.05, 0.06, 0.12, 16), m.darksteel, 0, 0.06, 0);
+  const tilt = new THREE.Group(); tilt.name = 'tilt'; tilt.position.y = 0.2; head.add(tilt);
+  P(tilt, rbox(0.4, 0.24, 0.42, 0.04), armor, 0, 0, 0.02);
+  P(tilt, rbox(0.42, 0.05, 0.3, 0.01), m.hazard, 0, 0.1, 0.04);
+  for (const sx of [-1, 1]) {
+    P(tilt, rbox(0.06, 0.2, 0.3, 0.02), m.darksteel, sx * 0.23, -0.01, 0.04);
+    P(tilt, cylZ(0.032, 0.032, 0.16, 16), m.gunmetal, sx * 0.08, -0.03, -0.25);
+    P(tilt, cylZ(0.016, 0.018, 0.3, 14), m.gunmetal, sx * 0.08, -0.03, -0.42);
+    P(tilt, cylZ(0.024, 0.024, 0.06, 6), m.darksteel, sx * 0.08, -0.03, -0.56);
+    marker(tilt, 'muzzle', sx * 0.08, -0.03, -0.6);
+  }
+  P(tilt, rbox(0.12, 0.12, 0.16, 0.015), m.olive, 0.29, -0.06, 0.06);                    // ammo box
+  P(tilt, rbox(0.16, 0.07, 0.06, 0.015), m.polymer, 0, 0.07, -0.2);                      // sensor housing
+  const eye = P(tilt, sphere(0.026, 14, 10), std({ color: 0xff2020, emissive: 0xff2020, emissiveIntensity: 1.2 }), 0, 0.07, -0.235); eye.name = 'eye';
+  P(tilt, cylY(0.004, 0.004, 0.18, 6), m.darksteel, -0.15, 0.2, 0.15);                  // antenna
+  return g;
+}
+function sentry_turret(m) {
+  const g = new THREE.Group(); const t = sentryMesh(m); t.scale.setScalar(0.3); t.position.y = -0.2; g.add(t);
+  P(g, rbox(0.06, 0.025, 0.04, 0.008), m.polymer, 0, -0.03, 0.03);   // carry handle
+  return g;
+}
 export const GEAR_BUILDERS = {
+  grapple_hook, sentry_turret,
   land_mine,
   fists, knife, scythe, bat, karambit, katana, sledgehammer, shurikens, slippers,
   frag, smoke_grenade, molotov, flashbang, sticky_bomb,

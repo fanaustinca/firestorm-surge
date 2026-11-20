@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { WEAPON_BY_ID, BASE_HP, MAX_ARMOR, BASE_SPEED, GRAVITY, JUMP_IMPULSE, CLIMB_SPEED, SPEED_MIN, SPEED_MAX, SPEED_ABILITY_MAX } from '../data/weapons.js';
 
 export const RADIUS = 0.4, HEIGHT = 1.8, EYE = 1.6;
+export const SLIDE = { time: 0.85, speed: 13.5, end: 6, cooldown: 0.9, drop: 0.75 };
 
 export class WeaponState {
   constructor(def, mods) {
@@ -31,6 +32,7 @@ export class Actor {
     this.thermal = { on: false, battery: 8 };
     this.skins = {}; this.rig = null; this.animPhase = 0; this.lastAttacker = null; this.lastHurt = 0;
     this.ads = false; this.recoil = 0; this.bloom = 0;
+    this.grapple = null; this.grappleCd = 0; this.slideT = 0; this.slideCd = 0; this.slideDir = new THREE.Vector3(); this.low = 0;
   }
 
   setLoadout(loadout, skins = {}) {
@@ -56,13 +58,33 @@ export class Actor {
     return m;
   }
   reloadMult() { return 1 + (this.mods.reload || 0) + (this.fx.adrenaline > 0 ? 0.25 : 0); }
-  eye(out = new THREE.Vector3()) { return out.set(this.pos.x, this.pos.y + EYE, this.pos.z); }
+  eye(out = new THREE.Vector3()) { return out.set(this.pos.x, this.pos.y + EYE - this.low * SLIDE.drop, this.pos.z); }
   aimDir(out = new THREE.Vector3()) {
     const cp = Math.cos(this.pitch); return out.set(-Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp);
   }
   forward(out = new THREE.Vector3()) { return out.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)); }
-  chest(out = new THREE.Vector3()) { return out.set(this.pos.x, this.pos.y + 1.2, this.pos.z); }
-  headPos(out = new THREE.Vector3()) { return out.set(this.pos.x, this.pos.y + 1.62, this.pos.z); }
+  chest(out = new THREE.Vector3()) { return out.set(this.pos.x, this.pos.y + 1.2 - this.low * 0.6, this.pos.z); }
+  headPos(out = new THREE.Vector3()) { return out.set(this.pos.x, this.pos.y + 1.62 - this.low * SLIDE.drop, this.pos.z); }
+  bodyTop() { return 1.48 - this.low * 0.7; }
+
+  // C: power-slide. Fast, low (smaller hitbox), keeps its momentum into a jump.
+  trySlide(wish) {
+    if (!this.onGround || this.slideT > 0 || this.slideCd > 0 || this.grapple || this.fx.stun > 0 || this.climbing) return false;
+    const hs = Math.hypot(this.vel.x, this.vel.z);
+    if (hs > 1.5) this.slideDir.set(this.vel.x / hs, 0, this.vel.z / hs);
+    else if (wish && wish.lengthSq() > 0.01) this.slideDir.copy(wish).setY(0).normalize();
+    else return false;
+    this.slideT = SLIDE.time; this.slideCd = SLIDE.time + SLIDE.cooldown;
+    const sp = Math.max(SLIDE.speed, hs); this.vel.x = this.slideDir.x * sp; this.vel.z = this.slideDir.z * sp;
+    return true;
+  }
+  releaseGrapple(pop = false) {
+    if (!this.grapple) return;
+    if (this.grapple.actor && !pop) { this.vel.x *= 0.12; this.vel.z *= 0.12; this.vel.y = Math.min(this.vel.y, 2); }   // stop in their face
+    if (pop) this.vel.y = Math.max(this.vel.y, JUMP_IMPULSE * 0.95);
+    else if (this.grapple.to.y > this.pos.y + 0.6) this.vel.y = Math.max(this.vel.y, 4.5);   // clear the lip of a roof
+    this.grapple = null;
+  }
 
   // ULTRA upgrade of the main firearm (lasts until death)
   activateUltra(ultraId) {
@@ -82,6 +104,7 @@ export class Actor {
     this.setLoadout(this.loadout, this.skins);
     this.slot = this.weapons[this.prevSpawnSlot || 1] ? (this.prevSpawnSlot || 1) : 1;
     this.thermal = { on: false, battery: 8 };
+    this.grapple = null; this.grappleCd = 0; this.slideT = 0; this.slideCd = 0; this.low = 0;
   }
 
   switchSlot(s) {
@@ -100,13 +123,48 @@ export class Actor {
   move(dt, world, wish, jumpPressed, climbDir) {
     const speed = BASE_SPEED * this.speedMult();
     const v = this.vel;
-    const accel = this.onGround ? 80 : 14;
-    const tx = wish.x * speed, tz = wish.z * speed;
-    const dx = tx - v.x, dz = tz - v.z; const dl = Math.hypot(dx, dz); const maxd = accel * dt;
-    if (dl <= maxd) { v.x = tx; v.z = tz; } else { v.x += (dx / dl) * maxd; v.z += (dz / dl) * maxd; }
+    if (this.slideCd > 0) this.slideCd -= dt;
+    if (this.grappleCd > 0) this.grappleCd -= dt;
+    const g = this.grapple;
+    let grappling = false;
+    if (g) {
+      g.t += dt;
+      if (g.actor) { if (!g.actor.alive) this.grapple = null; else g.to.set(g.actor.pos.x, g.actor.pos.y + 1.0, g.actor.pos.z); }
+      if (this.grapple && g.t >= g.fly) {
+        const dx = g.to.x - this.pos.x, dy = g.to.y - (this.pos.y + 0.9), dz = g.to.z - this.pos.z; const dist = Math.hypot(dx, dy, dz);
+        const closing = dist < (g.lastD ?? Infinity) - 0.02; g.lastD = dist; g.stall = closing ? 0 : (g.stall || 0) + dt;
+        if (dist < (g.actor ? 1.7 : 1.1) || g.t > g.fly + g.cfg.time || g.stall > 0.3 || this.fx.stun > 0) this.releaseGrapple(false);
+        else if (jumpPressed) { this.releaseGrapple(true); jumpPressed = false; this.jumpsLeft = this.mods.doubleJump || 0; }
+        else {
+          grappling = true; this.slideT = 0;
+          const s = g.cfg.speed / dist; const ex = dx * s - v.x, ey = dy * s - v.y, ez = dz * s - v.z; const el = Math.hypot(ex, ey, ez); const md = g.cfg.accel * dt;
+          const k = el <= md ? 1 : md / el; v.x += ex * k; v.y += ey * k; v.z += ez * k;
+          // a little air control lets you swing around corners
+          v.x += wish.x * 6 * dt; v.z += wish.z * 6 * dt;
+          this.onGround = false; this.jumped = 1;
+        }
+      }
+    }
+    if (this.slideT > 0) {
+      this.slideT -= dt;
+      const k = Math.max(0, this.slideT / SLIDE.time); const sp = SLIDE.end + (SLIDE.speed - SLIDE.end) * k;
+      if (wish.lengthSq() > 0.01) { this.slideDir.x += wish.x * dt * 1.6; this.slideDir.z += wish.z * dt * 1.6; this.slideDir.normalize(); }
+      if (this.onGround) { const hs = Math.max(sp, Math.min(Math.hypot(v.x, v.z), sp + 2)); v.x = this.slideDir.x * hs; v.z = this.slideDir.z * hs; }
+      if (jumpPressed || this.fx.stun > 0) this.slideT = 0;   // slide-jump: momentum carries into the air
+    } else if (!grappling) {
+      // air: don't bleed off speed you already have (slide-jumps / grapple flings keep their momentum)
+      const hs = Math.hypot(v.x, v.z); const cap = this.onGround ? speed : Math.max(speed, hs);
+      const accel = this.onGround ? 80 : 14;
+      let tx = wish.x * speed, tz = wish.z * speed;
+      if (!this.onGround && hs > speed && wish.lengthSq() > 0.01) { tx = wish.x * cap; tz = wish.z * cap; }
+      if (!this.onGround && wish.lengthSq() < 0.01) { tx = v.x * Math.max(0, 1 - dt * 0.6); tz = v.z * Math.max(0, 1 - dt * 0.6); }
+      const dx = tx - v.x, dz = tz - v.z; const dl = Math.hypot(dx, dz); const maxd = accel * dt;
+      if (dl <= maxd) { v.x = tx; v.z = tz; } else { v.x += (dx / dl) * maxd; v.z += (dz / dl) * maxd; }
+    }
+    this.low += ((this.slideT > 0 ? 1 : 0) - this.low) * Math.min(1, dt * 14);
     // climbing: anyone can use ladders/vines/rungs; Fists can scale any wall
     const wasClimbing = this.climbing; this.climbing = false;
-    if (climbDir && climbDir.lengthSq() > 0.01 && this.fx.stun <= 0) {
+    if (climbDir && climbDir.lengthSq() > 0.01 && this.fx.stun <= 0 && !grappling) {
       const c = world.climbableNear(this.pos, RADIUS, HEIGHT, climbDir, !!this.held?.climb, wasClimbing);
       if (c) { this.climbing = true; v.y = CLIMB_SPEED; this.jumpsLeft = this.mods.doubleJump || 0; this.climbBox = c; }
     }
@@ -116,7 +174,7 @@ export class Actor {
       else if (this.jumpsLeft > 0) { v.y = JUMP_IMPULSE; this.jumpsLeft--; this.jumped = 2; }
     }
     // exact parabolic step (peak height = v²/2g, independent of frame rate)
-    const ay = this.climbing ? 0 : GRAVITY;
+    const ay = this.climbing || grappling ? 0 : GRAVITY;
     this.pos.x += (v.x + this.pull.x) * dt; this.pos.z += (v.z + this.pull.z) * dt;   // pull: external drift (black holes)
     if (this.pull.y > 0 && !this.onGround) this.pos.y += this.pull.y * dt;
     this.pull.set(0, 0, 0);
