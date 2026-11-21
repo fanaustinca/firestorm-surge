@@ -604,7 +604,101 @@ function pocket_rocket(m) {
   return g;
 }
 
+// ───────── v2.6 fun guns ─────────
+function snowball_launcher(m) {
+  const g = new THREE.Group();
+  const frost = std({ color: 0xcfe6f5, metalness: 0.25, roughness: 0.45 }); const ice = std({ color: 0x8fd0f0, metalness: 0.1, roughness: 0.15, transparent: true, opacity: 0.8 });
+  const snow = std({ color: 0xf6f9fc, roughness: 0.9 });
+  P(g, rbox(0.07, 0.085, 0.3, 0.016), m.gunmetal, 0, 0.03, -0.06);                          // receiver
+  P(g, rbox(0.074, 0.03, 0.28, 0.01), frost, 0, 0.082, -0.06);                              // frosted top cover
+  P(g, cylZ(0.05, 0.05, 0.36, 24, true), frost, 0, 0.04, -0.38);                            // fat launch tube
+  P(g, cylZ(0.042, 0.042, 0.36, 24, true), m.darksteel, 0, 0.04, -0.38);
+  for (const z of [-0.25, -0.38, -0.51]) P(g, torus(0.052, 0.007, 22), m.darksteel, 0, 0.04, z);
+  P(g, torus(0.05, 0.012, 22), ice, 0, 0.04, -0.565);                                         // icy muzzle rim
+  for (let i = 0; i < 7; i++) { const a = (i / 7) * PI * 2; P(g, new THREE.ConeGeometry(0.008, 0.035, 5), ice, Math.cos(a) * 0.05, 0.04 + Math.sin(a) * 0.05 - 0.02, -0.56, PI); }   // icicles
+  P(g, sphere(0.04, 16, 12), snow, 0, 0.04, -0.53);                                          // chambered snowball
+  const mag = new THREE.Group(); mag.name = 'mag'; mag.position.set(0, 0.12, -0.12); g.add(mag);   // snowball hopper
+  P(mag, latheZ([[0.03, -0.07], [0.06, -0.04], [0.065, 0.06], [0.0, 0.065]], 20).rotateX(PI / 2), ice, 0, 0.0, 0);
+  for (let i = 0; i < 6; i++) P(mag, sphere(0.024, 10, 8), snow, ((i % 3) - 1) * 0.028, 0.015 + Math.floor(i / 3) * 0.035, ((i * 7) % 3 - 1) * 0.015);
+  P(g, cylX(0.03, 0.03, 0.02, 14), m.darksteel, 0.045, 0.03, 0.0); P(g, rbox(0.008, 0.06, 0.012, 0.003), m.darksteel, 0.06, 0.0, 0.0); P(g, cylX(0.009, 0.009, 0.03, 8), m.orange, 0.075, -0.03, 0.0);   // crank
+  pistolGrip(g, m, m.polymer, 0.06); triggerGroup(g, m, 0.02);
+  P(g, rbox(0.04, 0.05, 0.2, 0.01), frost, 0, 0.03, 0.19); P(g, rbox(0.044, 0.1, 0.016, 0.006), m.rubber, 0, 0.02, 0.3);
+  P(g, cylY(0.018, 0.02, 0.08, 12), m.polymer, 0, -0.04, -0.3);
+  P(g, rbox(0.02, 0.02, 0.05, 0.004), m.darksteel, 0, 0.11, 0.06);
+  marker(g, 'muzzle', 0, 0.04, -0.6); marker(g, 'foregrip', 0, -0.08, -0.3); marker(g, 'sight', 0, 0.125, 0.12);
+  return g;
+}
+function paintball_gun(m) {
+  const g = new THREE.Group();
+  const anod = std({ color: 0x18a8a0, metalness: 0.75, roughness: 0.3 }); const smoke = std({ color: 0x223040, metalness: 0.1, roughness: 0.1, transparent: true, opacity: 0.55 });
+  P(g, rbox(0.036, 0.07, 0.24, 0.012), anod, 0, 0.04, -0.05);                                  // marker body
+  for (let i = 0; i < 4; i++) P(g, box(0.038, 0.006, 0.02), m.polymer, 0, 0.06, -0.12 + i * 0.04);   // milling
+  P(g, cylZ(0.016, 0.016, 0.42, 18), m.polymer, 0, 0.055, -0.38);                               // long barrel
+  for (let i = 0; i < 6; i++) P(g, cylZ(0.0035, 0.0035, 0.02, 6), anod, 0, 0.071, -0.42 - i * 0.045);   // porting
+  P(g, cylZ(0.02, 0.02, 0.04, 18), anod, 0, 0.055, -0.18);
+  P(g, cylY(0.012, 0.012, 0.07, 12), anod, 0, 0.11, -0.06);                                     // feed neck
+  const mag = new THREE.Group(); mag.name = 'mag'; mag.position.set(0, 0.17, -0.06); g.add(mag);   // see-through hopper full of paint
+  P(mag, sphere(0.07, 22, 16), smoke).scale.set(0.85, 0.75, 1.25);
+  const cols = [0xff2d6f, 0x2fd0ff, 0xffe02a, 0x6cff3a, 0xb04cff];
+  for (let i = 0; i < 10; i++) P(mag, sphere(0.014, 10, 8), std({ color: cols[i % 5], roughness: 0.25 }), ((i % 3) - 1) * 0.026, -0.02 + Math.floor(i / 4) * 0.022, ((i * 5) % 4 - 1.5) * 0.024);
+  P(mag, cylY(0.03, 0.03, 0.012, 16), m.polymer, 0, 0.05, 0);
+  pistolGrip(g, m, m.rubber, 0.05); triggerGroup(g, m, 0.02);
+  P(g, profile([[0.012, 0.0], [-0.02, 0.0], [-0.028, -0.09], [-0.018, -0.1], [0.008, -0.08]], 0.03, 0.004), m.rubber, 0, -0.005, -0.08);   // front grip
+  const tank = new THREE.Group(); tank.position.set(0, -0.04, 0.17); tank.rotation.x = 0.22; g.add(tank);   // air tank stock
+  P(tank, cylZ(0.04, 0.04, 0.26, 22), std({ color: 0x1a1d21, metalness: 0.6, roughness: 0.35 }));
+  P(tank, sphere(0.04, 18, 12), std({ color: 0x1a1d21, metalness: 0.6, roughness: 0.35 }), 0, 0, 0.13).scale.set(1, 1, 0.6);
+  P(tank, cylZ(0.042, 0.042, 0.03, 22), anod, 0, 0, -0.12);
+  P(g, tube([[0, -0.07, 0.05], [0, -0.06, 0.0], [0, -0.04, -0.06]], 0.005), m.rubber);
+  P(g, rbox(0.016, 0.014, 0.06, 0.004), m.polymer, 0, 0.083, 0.05);
+  marker(g, 'muzzle', 0, 0.055, -0.6); marker(g, 'foregrip', 0, -0.06, -0.08); marker(g, 'sight', 0, 0.095, 0.12);
+  return g;
+}
+function water_gun(m) {
+  const g = new THREE.Group();
+  const toy = std({ color: 0xff7a1a, metalness: 0.05, roughness: 0.45 }); const toy2 = std({ color: 0x2aa84a, metalness: 0.05, roughness: 0.5 });
+  const water = std({ color: 0x3aa8ff, metalness: 0.05, roughness: 0.05, transparent: true, opacity: 0.6 });
+  P(g, profile([[-0.06, 0.08], [0.31, 0.08], [0.35, 0.035], [0.31, -0.01], [-0.06, -0.01], [-0.09, 0.035]], 0.06, 0.012), toy, 0, 0, 0.0);   // chunky body
+  P(g, cylZ(0.022, 0.016, 0.16, 18), toy2, 0, 0.035, -0.41);                                 // nozzle
+  P(g, cylZ(0.026, 0.026, 0.02, 18), m.polymer, 0, 0.035, -0.33);
+  P(g, cylZ(0.009, 0.009, 0.02, 10), m.polymer, 0, 0.035, -0.495);
+  const mag = new THREE.Group(); mag.name = 'mag'; mag.position.set(0, 0.13, -0.09); g.add(mag);   // water tank
+  P(mag, cylZ(0.052, 0.052, 0.22, 22), water); P(mag, cylZ(0.056, 0.056, 0.02, 22), toy2, 0, 0, 0.11); P(mag, cylZ(0.056, 0.056, 0.02, 22), toy2, 0, 0, -0.11);
+  P(mag, cylY(0.02, 0.02, 0.025, 14), toy2, 0, 0.06, 0.06);                                // fill cap
+  const pmp = new THREE.Group(); pmp.name = 'soak'; pmp.position.set(0, -0.045, -0.24); g.add(pmp);   // pump handle
+  P(pmp, rbox(0.05, 0.04, 0.13, 0.012), toy2); for (let i = 0; i < 4; i++) P(pmp, box(0.052, 0.004, 0.008), m.polymer, 0, -0.01, -0.045 + i * 0.03);
+  P(g, cylZ(0.01, 0.01, 0.16, 10), m.white, 0, -0.03, -0.17);
+  P(g, profile([[0.022, 0.006], [-0.026, 0.006], [-0.05, -0.1], [-0.04, -0.115], [-0.006, -0.115], [0.004, -0.098], [0.01, -0.03]], 0.034, 0.008), toy2, 0, -0.01, 0.06);
+  P(g, torus(0.026, 0.005, 18, PI), toy2, 0, -0.02, 0.02, 0, PI / 2, PI); P(g, rbox(0.01, 0.026, 0.012, 0.004), m.yellow, 0, -0.03, 0.03, 0.25);
+  P(g, rbox(0.05, 0.05, 0.16, 0.014), toy, 0, 0.02, 0.17); P(g, rbox(0.054, 0.08, 0.02, 0.008), toy2, 0, 0.0, 0.25);
+  for (const z of [-0.2, -0.05]) P(g, sphere(0.012, 10, 8), m.yellow, 0.032, 0.04, z);           // toy rivets
+  marker(g, 'muzzle', 0, 0.035, -0.51); marker(g, 'foregrip', 0, -0.06, -0.24); marker(g, 'sight', 0, 0.2, 0.12);
+  return g;
+}
+function tennis_launcher(m) {
+  const g = new THREE.Group();
+  const court = std({ color: 0x2d6a4f, metalness: 0.3, roughness: 0.5 }); const felt = std({ color: 0xd8f040, roughness: 0.95 });
+  P(g, rbox(0.075, 0.1, 0.32, 0.014), court, 0, 0.035, -0.06);                              // compressor body
+  for (let i = 0; i < 5; i++) P(g, box(0.077, 0.006, 0.012), m.darksteel, 0, 0.0, -0.17 + i * 0.03);   // vents
+  P(g, cylZ(0.042, 0.042, 0.4, 24, true), m.white, 0, 0.05, -0.4);                            // launch tube
+  P(g, cylZ(0.036, 0.036, 0.4, 24, true), m.darksteel, 0, 0.05, -0.4);
+  for (const z of [-0.26, -0.58]) P(g, torus(0.044, 0.006, 22), court, 0, 0.05, z);
+  P(g, cylZ(0.05, 0.044, 0.04, 24, true), court, 0, 0.05, -0.61);
+  P(g, sphere(0.032, 16, 12), felt, 0, 0.05, -0.56);                                         // ball in the chamber
+  const mag = new THREE.Group(); mag.name = 'mag'; mag.position.set(0, 0.13, -0.08); g.add(mag);   // wire ball basket
+  for (let i = 0; i < 6; i++) P(mag, sphere(0.03, 14, 10), felt, ((i % 2) - 0.5) * 0.06, Math.floor(i / 4) * 0.05, (Math.floor(i / 2) % 2 - 0.5) * 0.06 - (i >= 4 ? 0 : 0.0));
+  for (let i = 0; i < 4; i++) P(mag, cylY(0.003, 0.003, 0.08, 6), m.steel, (i % 2 ? 1 : -1) * 0.06, 0.02, (i < 2 ? 1 : -1) * 0.06);
+  P(mag, torus(0.085, 0.003, 4).rotateX(PI / 2).rotateY(PI / 4), m.steel, 0, 0.06, 0);
+  P(mag, rbox(0.12, 0.006, 0.12, 0.002), m.steel, 0, -0.03, 0);
+  pistolGrip(g, m, m.grip, 0.06); triggerGroup(g, m, 0.02);
+  stockAR(g, m, court);
+  P(g, cylY(0.016, 0.018, 0.08, 12), m.rubber, 0, -0.04, -0.3);
+  P(g, rbox(0.02, 0.016, 0.05, 0.004), m.polymer, 0, 0.1, 0.06);
+  marker(g, 'muzzle', 0, 0.05, -0.64); marker(g, 'foregrip', 0, -0.08, -0.3); marker(g, 'sight', 0, 0.115, 0.12);
+  return g;
+}
+
 export const GUN_BUILDERS = {
+  snowball_launcher, paintball_gun, water_gun, tennis_launcher,
   assault_rifle, ak47, dmr, rocket_launcher, burst_rifle, lmg, heavy_sniper, flamethrower, grenade_launcher, mortar,
   pistol, smg, crossbow, burst_pistol, revolver, sawed_off, tactical_shotgun, taser,
   volt_rail, arc_caster, ricochet_disc, cryo_sprayer, harpoon_gun, pocket_rocket,

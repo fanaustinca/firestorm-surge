@@ -296,3 +296,34 @@ footer .ver { float: right; }
 .rank .rbar, .results .rbar { display: block; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.12); overflow: hidden; margin-top: 3px; }
 .rank .rbar u, .results .rbar u { display: block; height: 100%; background: var(--rc, #ff6a1a); }
 .results .rbar { --rc: #ffcc33; margin: 4px 0 8px; } .rankup { color: #ffe060; text-shadow: 0 0 12px #ff8a20; }
+
+/* ── v2.6: achievements popup, paint splats, daily wheel, achievements list ── */
+#achbox { position: absolute; top: 84px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; pointer-events: none; z-index: 30; }
+.ach-pop { display: flex; align-items: center; gap: 12px; min-width: 340px; background: linear-gradient(90deg, rgba(40, 28, 6, 0.95), rgba(14, 16, 20, 0.92)); border: 1px solid var(--gold); border-radius: 12px; padding: 8px 14px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5); animation: achIn 0.35s cubic-bezier(.2, 1.4, .4, 1); transition: opacity .5s, transform .5s; }
+.ach-pop.out { opacity: 0; transform: translateY(-12px); }
+.ach-pop .ai { font-size: 30px; } .ach-pop div { display: flex; flex-direction: column; flex: 1; }
+.ach-pop small { color: var(--gold); font-size: 10px; letter-spacing: 2px; font-weight: 800; } .ach-pop b { font-size: 16px; } .ach-pop em { font-style: normal; color: var(--dim); font-size: 12px; }
+.ach-pop i { font-style: normal; color: var(--gold); font-weight: 800; }
+@keyframes achIn { from { opacity: 0; transform: translateY(-20px) scale(.9); } }
+#paintov { position: absolute; inset: 0; pointer-events: none; z-index: 5; overflow: hidden; }
+#paintov i { position: absolute; border-radius: 47% 53% 42% 58% / 55% 45% 55% 45%; background: radial-gradient(circle at 40% 38%, color-mix(in srgb, var(--pc) 70%, white) 0 12%, var(--pc) 30% 62%, transparent 64%), radial-gradient(circle at 80% 85%, var(--pc) 0 9%, transparent 10%), radial-gradient(circle at 12% 70%, var(--pc) 0 7%, transparent 8%); opacity: .92; animation: paintDrip 2.6s ease-in forwards; }
+@keyframes paintDrip { 0% { opacity: .95; scale: .6; } 8% { scale: 1.05; } 15% { scale: 1; } 70% { opacity: .85; } 100% { opacity: 0; translate: 0 40px; } }
+.menu-toast { position: fixed; left: 50%; top: 18px; transform: translateX(-50%); z-index: 99; }
+.btn.wheel-btn { position: relative; background: linear-gradient(180deg, #7a3cff, #4a1fb0); border-color: #a98aff; color: #fff; }
+.btn.wheel-btn.ready::after { content: 'FREE SPIN!'; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: var(--gold); color: #1a1200; font-size: 10px; font-weight: 900; padding: 2px 6px; border-radius: 6px; animation: pulse 1s infinite alternate; }
+@keyframes pulse { to { transform: translateY(-50%) scale(1.12); } }
+.modal.wheel { text-align: center; }
+.modal.wheel header, .modal.achs header { display: flex; justify-content: space-between; align-items: center; gap: 24px; width: min(900px, 92vw); }
+.modal.wheel header .meta, .modal.achs header .meta { display: flex; gap: 14px; align-items: center; }
+.wheel-wrap { position: relative; width: 380px; height: 380px; margin: 10px auto 14px; max-width: 84vw; max-height: 84vw; }
+.wheel-wrap svg { width: 100%; height: 100%; transition: transform 4.6s cubic-bezier(.12, .8, .14, 1); filter: drop-shadow(0 8px 20px rgba(0,0,0,.5)); }
+.wheel-wrap .pin { position: absolute; left: 50%; top: -8px; transform: translateX(-50%); width: 0; height: 0; border-left: 16px solid transparent; border-right: 16px solid transparent; border-top: 30px solid var(--gold); filter: drop-shadow(0 2px 3px rgba(0,0,0,.6)); z-index: 2; }
+.wheel-res { min-height: 28px; font-size: 18px; font-weight: 800; color: var(--gold); }
+.modal.achs { justify-content: flex-start; padding-top: 28px; }
+.ach-grid { width: min(900px, 92vw); display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; max-height: 64vh; overflow: auto; padding: 4px; }
+.ach { display: grid; grid-template-columns: 44px 1fr; gap: 2px 10px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+.ach .ai { grid-row: 1 / span 3; font-size: 30px; text-align: center; filter: grayscale(1) opacity(.45); }
+.ach b { font-size: 14px; } .ach small { color: var(--dim); font-size: 12px; }
+.ach .qbar { height: 4px; background: #222830; border-radius: 2px; overflow: hidden; } .ach .qbar i { display: block; height: 100%; background: linear-gradient(90deg, var(--fire), var(--fire2)); }
+.ach.done { border-color: var(--gold); background: linear-gradient(135deg, rgba(255, 200, 60, .14), var(--panel)); } .ach.done .ai { filter: none; } .ach.done .qbar i { background: var(--gold); }
+.ach-sum { color: var(--dim); margin: -4px 0 10px; }

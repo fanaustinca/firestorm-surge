@@ -125,6 +125,11 @@ const ARCHETYPES = [
   { name: 'Cryomancer', l: { 1: 'cryo_sprayer', 2: 'sawed_off', 3: 'karambit', 4: 'smoke_grenade' }, range: [3, 10] },
   { name: 'Whaler', l: { 1: 'harpoon_gun', 2: 'smg', 3: 'katana', 4: 'flashbang' }, range: [8, 30] },
   { name: 'Hookshot', l: { 1: 'ak47', 2: 'sawed_off', 3: 'grapple_hook', 4: 'frag', 6: 'spring_boots' }, range: [5, 20] },
+  { name: 'Snowman', l: { 1: 'snowball_launcher', 2: 'pistol', 3: 'knife', 4: 'smoke_grenade' }, range: [8, 30] },
+  { name: 'Painter', l: { 1: 'paintball_gun', 2: 'burst_pistol', 3: 'karambit', 4: 'flashbang' }, range: [10, 34] },
+  { name: 'Lifeguard', l: { 1: 'water_gun', 2: 'sawed_off', 3: 'bat', 4: 'frag' }, range: [3, 12] },
+  { name: 'Pro Server', l: { 1: 'tennis_launcher', 2: 'smg', 3: 'bat', 4: 'sticky_bomb' }, range: [8, 28] },
+  { name: 'Spartan', l: { 1: 'burst_rifle', 2: 'revolver', 3: 'spear', 4: 'frag', 6: 'spring_boots' }, range: [6, 22] },
   { name: 'Engineer', l: { 1: 'assault_rifle', 2: 'burst_pistol', 3: 'bat', 4: 'land_mine', 5: 'sentry_turret' }, range: [12, 30] },
 ];
 export function botLoadout(index, forceWeapon) {
@@ -245,6 +250,10 @@ export class BotBrain {
     // grapple hook: zip in on a visible enemy, then finish with the claw / shotgun
     const gh = wsOf(3)?.def.grapple;
     if (this.T.swap && gh && tgt && ((visible && a.grappleCd <= 0 && dist > 8 && dist < gh.range * 0.75) || a.grapple)) slot = 3;
+    // spear: pull it out to hurl it at mid range, or to stab up close
+    const spr = wsOf(3)?.def.spear ? wsOf(3) : null;
+    if (spr && spr.mag > 0 && tgt && visible && (dist < 3 || (this.T.swap && dist > 6 && dist < 22 && (a.slot === 3 || Math.random() < dt * 0.6)))) slot = 3;
+    else if (spr && spr.mag === 0 && slot === 3) slot = primaryOk ? 1 : 2;
     // sentry: drop it when a fight is on, or while holding a spot
     const sen = wsOf(5)?.def.sentry;
     if (this.T.swap && sen && wsOf(5).usableCd <= 0 && tgt && this.lastSeen && dist < 30 && a.onGround && !g.combat.sentries.some((x) => x.owner === a)) slot = 5;
@@ -428,6 +437,13 @@ export class BotBrain {
     if (semi && fire && this.prevFire) fire = false;
     it.firePressed = fire && !this.prevFire; it.fire = fire;
     this.prevFire = fire;
+    if (ws?.def.spear) {   // LMB throws, RMB stabs
+      it.fire = it.firePressed = false;
+      if (tgt && visible && ws.mag > 0 && a.drawT <= 0 && this.reactT <= 0) {
+        const d = a.pos.distanceTo(tgt.pos); const aimDot = a.aimDir(V()).dot(V().subVectors(tgt.chest(V()), a.eye(V())).normalize());
+        if (aimDot > 0.97) { if (d < 3.3) it.altPressed = true; else if (d < 24 && Math.random() < dt * 2) it.firePressed = true; }
+      }
+    }
     if (ws?.def.grapple && tgt && visible && !a.grapple && a.grappleCd <= 0 && a.drawT <= 0) {
       const d = a.pos.distanceTo(tgt.pos); const aimDot = a.aimDir(V()).dot(V().subVectors(tgt.chest(V()), a.eye(V())).normalize());
       if (d > 6 && d < ws.def.grapple.range * 0.8 && aimDot > 0.985) it.altPressed = true;

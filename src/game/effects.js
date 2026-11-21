@@ -47,6 +47,7 @@ export class Effects {
     for (const p of this.pools) this.root.remove(p.mesh);
     for (const v of this.vortexMeshes || []) this.root.remove(v);
     this.vortexMeshes = [];
+    for (const d of this.decals || []) this.root.remove(d); this.decals = [];
     this.smokes = []; this.rings = []; this.popups = []; this.tethers = []; this.fireballs = []; this.pools = []; this.parts = []; this.clouds = [];
   }
 
@@ -78,8 +79,32 @@ export class Effects {
     this.flashLight.position.copy(pos); this.flashLight.intensity = 6 * big; this.flashT = 0.05;
   }
   flame(pos, vel, reach = 1, cryo = false) {
+    if (cryo === 'water') { const c = Math.random() < 0.3 ? 0xe8f6ff : Math.random() < 0.5 ? 0x7cc8ff : 0x3a90e8; this.spawn(pos, vel, c, 0.09 + Math.random() * 0.08, 0.5 + Math.random() * 0.25, { grow: 0.8, gravity: -9, drag: 0.35 }); return; }
     const c = cryo ? (Math.random() < 0.35 ? 0xffffff : Math.random() < 0.5 ? 0x9fe4ff : 0x5ab8f0) : Math.random() < 0.3 ? 0xff5010 : Math.random() < 0.5 ? 0xffa020 : 0xffd060;
     this.spawn(pos, vel, c, 0.25 + Math.random() * 0.15, (0.45 + Math.random() * 0.2) * Math.min(1.5, Math.max(1, reach)), { grow: 1.6 * Math.max(1, reach * 0.9), gravity: 2, drag: 1.2 });
+  }
+
+  // ───── snow / paint / decals ─────
+  snowPuff(pos, scale = 1, color = 0xf4f8ff) {
+    for (let i = 0; i < 4; i++) this.puff(pos.clone().add(_p.set((Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.3)), new THREE.Vector3((Math.random() - 0.5) * 1.2, 0.6, (Math.random() - 0.5) * 1.2), color, 0.5 * scale, 0.6, 0.75);
+    for (let i = 0; i < 8; i++) this.spawn(pos, new THREE.Vector3((Math.random() - 0.5) * 5, Math.random() * 4, (Math.random() - 0.5) * 5), 0x9fb4c8, 0.06 * scale, 0.5, { gravity: -12 });
+  }
+  paintBurst(pos, color, n = 9) {
+    for (let i = 0; i < n; i++) this.spawn(pos, new THREE.Vector3((Math.random() - 0.5) * 5, Math.random() * 3.5, (Math.random() - 0.5) * 5), color, 0.07 + Math.random() * 0.06, 0.45, { gravity: -14 });
+  }
+  // flat splat stuck to a surface (paint / snow). Ring-buffer of 160 meshes; materials shared per colour.
+  decal(pos, normal, color, size = 0.3, style = 'paint') {
+    this.decals ||= []; this.decalMats ||= new Map();
+    const key = style + color; let mat = this.decalMats.get(key);
+    if (!mat) { mat = new THREE.MeshStandardMaterial({ map: tex(style === 'snow' ? 'snowsplat' : 'splat'), color, transparent: true, alphaTest: 0.05, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, roughness: style === 'snow' ? 0.85 : 0.25, metalness: 0 }); this.decalMats.set(key, mat); }
+    this.decalGeo ||= new THREE.PlaneGeometry(1, 1);
+    const m = new THREE.Mesh(this.decalGeo, mat); m.renderOrder = 2;
+    const n = normal ? normal.clone() : new THREE.Vector3(0, 1, 0);
+    m.position.copy(pos).addScaledVector(n, 0.012);
+    m.quaternion.setFromUnitVectors(FWD, n); m.rotateZ(Math.random() * Math.PI * 2);
+    m.scale.set(size * 2, size * 2, 1); m.receiveShadow = true;
+    this.root.add(m); this.decals.push(m);
+    if (this.decals.length > 160) this.root.remove(this.decals.shift());
   }
 
   // ───── smoke ─────

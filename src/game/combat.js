@@ -17,9 +17,11 @@ const SHOT_SOUND = {
   assault_rifle: 'rifle', ak47: 'rifle', burst_rifle: 'rifle', lmg: 'rifle', dmr: 'heavy', heavy_sniper: 'heavy',
   pistol: 'pistol', burst_pistol: 'pistol', revolver: 'heavy', smg: 'smg', sawed_off: 'shotgun', tactical_shotgun: 'shotgun',
   rocket_launcher: 'launcher', grenade_launcher: 'launcher', mortar: 'mortar', volt_rail: 'heavy', arc_caster: 'smg', ricochet_disc: 'launcher', harpoon_gun: 'bow', pocket_rocket: 'launcher', crossbow: 'bow', shurikens: 'throw', slippers: 'throw',
+  snowball_launcher: 'snow', paintball_gun: 'pop', tennis_launcher: 'thwock',
 };
 const TRACER_COLOR = { heavy_sniper: 0xff9a50, dmr: 0xffb070, lmg: 0xffd070, taser: 0x80e0ff, volt_rail: 0x40f0ff, arc_caster: 0xb48cff };
 const _pull = new THREE.Vector3();
+export const PAINT_COLORS = [0xff2d6f, 0x2fd0ff, 0xffe02a, 0x6cff3a, 0xb04cff, 0xff8a1a];
 
 const bid = (d) => d.base || d.id;
 
@@ -49,7 +51,7 @@ export class Combat {
     for (const s in a.weapons) {
       const ws = a.weapons[s], d = ws.def;
       if (d.regen && ws.mag < d.mag) { ws.regen += dt; if (ws.regen >= d.regen) { ws.regen = 0; ws.mag++; } }
-      if ((d.cooldown && d.kind === 'projectile') || d.recharge) { if (ws.mag === 0 && ws.recharge > 0) { ws.recharge -= dt; if (ws.recharge <= 0) ws.mag = 1; } }
+      if ((d.cooldown && d.kind === 'projectile') || d.recharge || d.spear) { if (ws.mag === 0 && ws.recharge > 0) { ws.recharge -= dt; if (ws.recharge <= 0) ws.mag = 1; } }
       if (ws.usableCd > 0) ws.usableCd = Math.max(0, ws.usableCd - dt);
     }
     if (a.fx.scytheCd > 0) a.fx.scytheCd -= dt;
@@ -92,7 +94,7 @@ export class Combat {
 
   startReload(a, ws) {
     const d = ws.def;
-    if (d.recharge || d.regen || (d.cooldown && d.kind === 'projectile') || !d.mag) return false;
+    if (d.recharge || d.regen || d.spear || (d.cooldown && d.kind === 'projectile') || !d.mag) return false;
     if (ws.mag >= d.mag || ws.reserve <= 0 || ws.reloading > 0) return false;
     ws.reloading = d.reload; ws.reloadTotal = d.perShell ? d.reload * (d.mag - ws.mag) : d.reload; ws.burstLeft = 0;
     if (a === this.g.player) sfx.reload(0);
@@ -144,10 +146,14 @@ export class Combat {
       const vel = dir.multiplyScalar(speed);
       if (kind === 'gl_shell') vel.y += 3.0;
       if (kind === 'slipper') vel.y += 2.5;
+      if (kind === 'snowball') vel.y += 2.2;
+      if (kind === 'tennis') vel.y += 1.4;
+      if (kind === 'paintball') vel.y += 0.6;
       if (kind === 'slipper' || kind === 'shuriken') vel.multiplyScalar(1 + (a.mods.throw || 0) * 0.5);
       const pr = this.spawnProj(a, d, kind, eye.clone().addScaledVector(aim, 0.4), vel, { visFrom: muzzle });
       if (d.projScale) pr.mesh.scale.setScalar(d.projScale);
       if (d.twinDisc) { const side = V(-aim.z, 0, aim.x).normalize(); for (const sg of [-1, 1]) { const v2 = vel.clone().addScaledVector(side, sg * speed * 0.05); if (sg > 0) pr.vel.copy(v2); else this.spawnProj(a, d, kind, eye.clone().addScaledVector(aim, 0.4), v2, { visFrom: muzzle }); } }
+      if (d.triple) { const side = V(-aim.z, 0, aim.x).normalize(); for (const sg of [-1, 1]) { const p2 = this.spawnProj(a, d, kind, eye.clone().addScaledVector(aim, 0.4), vel.clone().addScaledVector(side, sg * speed * 0.07), { visFrom: muzzle }); if (d.projScale) p2.mesh.scale.setScalar(d.projScale); } }
       if (d.cooldown && d.kind === 'projectile') ws.recharge = d.cooldown;
     } else {
       const n = d.pellets || 1;
@@ -253,8 +259,9 @@ export class Combat {
   // ═════════════════ projectiles ═════════════════
   spawnProj(owner, def, kind, pos, vel, opts = {}) {
     const p = { id: opts.id || `${owner.id}:${this.seq++}`, kind, def, owner, pos: pos.clone(), vel: vel.clone(), t: 0, fuse: opts.fuse ?? def.fuse ?? 99, remote: !!opts.remote, stuck: null, bounces: 0, target: opts.target || null };
-    p.grav = { rocket: 0, disc: 0, harpoon: -3, bolt: -4, shuriken: -3, slipper: -12, gl_shell: -15, mortar_shell: -20 }[kind] ?? -20;
+    p.grav = { rocket: 0, disc: 0, harpoon: -3, bolt: -4, shuriken: -3, slipper: -12, gl_shell: -15, mortar_shell: -20, snowball: -9, paintball: -5, tennis: -12, spear: -7 }[kind] ?? -20;
     p.mesh = projectileMesh(kind);
+    if (kind === 'paintball') { p.color = opts.color ?? PAINT_COLORS[(Math.random() * PAINT_COLORS.length) | 0]; const mm = p.mesh.children[0]; if (mm) { mm.material = mm.material.clone(); mm.material.color.setHex(p.color); } }
     p.mesh.position.copy(opts.visFrom || pos);
     p.visOff = opts.visFrom ? opts.visFrom.clone().sub(pos) : V();
     this.g.scene.add(p.mesh);
@@ -302,19 +309,26 @@ export class Combat {
       }
       // fuses
       if (!remove && p.t >= p.fuse && !p.remote) remove = this.detonate(p);
-      if (!remove && p.t > (p.kind === 'mine' ? p.def.mine.life : 12)) remove = true;
+      if (!remove && p.t > (p.kind === 'mine' ? p.def.mine.life : p.kind === 'spear' ? 30 : 12)) remove = true;
       // slipper pickup
       if (!remove && p.kind === 'slipper' && p.landed && p.owner.alive && p.owner.pos.distanceTo(p.pos) < 1.4) {
         const ws = Object.values(p.owner.weapons).find((w) => w.id === 'slippers'); if (ws && ws.mag === 0) { ws.mag = 1; ws.recharge = 0; } remove = true;
+      }
+      if (!remove && p.kind === 'spear') {
+        const sws = Object.values(p.owner.weapons || {}).find((w) => w.def.spear);
+        if (p.remote) { if ((p.landed || p.stuck) && (p.landT ??= p.t) && p.t - p.landT > p.def.spear.ret) remove = true; }   // mirrored copy: just fade out
+        else if (!sws || sws.mag > 0 || !p.owner.alive) remove = true;                                  // it already returned to the thrower
+        else if ((p.landed || p.stuck) && p.owner.pos.distanceTo(p.pos) < 1.8) { sws.mag = 1; sws.recharge = 0; remove = true; if (p.owner === this.g.player) sfx.reload(1); }
       }
       if (remove) { this.g.scene.remove(p.mesh); this.projs.splice(i, 1); continue; }
       // visuals
       const k = Math.max(0, 1 - p.t / 0.15);
       p.mesh.position.copy(p.pos).addScaledVector(p.visOff, k);
       if (!p.stuck && !p.landed) {
-        if (['rocket', 'bolt', 'harpoon', 'mortar_shell', 'gl_shell'].includes(p.kind) && p.vel.lengthSq() > 1) p.mesh.quaternion.setFromUnitVectors(_b.set(0, 0, -1), _c.copy(p.vel).normalize());
+        if (['rocket', 'bolt', 'harpoon', 'mortar_shell', 'gl_shell', 'spear'].includes(p.kind) && p.vel.lengthSq() > 1) p.mesh.quaternion.setFromUnitVectors(_b.set(0, 0, -1), _c.copy(p.vel).normalize());
         else if (p.kind === 'shuriken' || p.kind === 'disc') p.mesh.rotation.y += dt * 30;
         else if (p.kind === 'slipper') { p.mesh.rotation.x += dt * 14; p.mesh.rotation.y += dt * 3; }
+        else if (p.kind === 'tennis' || p.kind === 'snowball' || p.kind === 'paintball') { p.mesh.rotation.x += dt * 12; p.mesh.rotation.y += dt * 7; }
         else { p.mesh.rotation.x += dt * 8; p.mesh.rotation.z += dt * 5; }
       }
       if (p.kind === 'molotov') this.g.effects.spawn(p.pos.clone().add(_a.set(0, 0.2, 0)), V().set(0, 1, 0), 0xff8020, 0.15, 0.15);
@@ -348,6 +362,26 @@ export class Combat {
         this.g.effects.blood(pos);
         if (p.kind === 'slipper') { sfx.slap(pos); p.spent = true; p.vel.set(-dir.x * 2, 3, -dir.z * 2); p.pos.copy(pos).addScaledVector(dir, -0.4); return false; }
         return true;
+      case 'snowball':
+        if (!p.remote) { this.g.damage(t, head ? d.head : d.dmg, { attacker: p.owner, weapon: d.id, head, pos, dir }); if (t.alive && d.frost) this.g.chill(t, d.frost, d.frost.per); }
+        this.g.effects.snowPuff(pos, 1); sfx.splat(pos, 'snow'); return true;
+      case 'paintball':
+        if (!p.remote) this.g.damage(t, head ? d.head : d.dmg, { attacker: p.owner, weapon: d.id, head, pos, dir, paint: p.color });
+        this.g.effects.paintBurst(pos, p.color); sfx.splat(pos); return true;
+      case 'tennis': {
+        (p.hits ||= new Set()).add(t);
+        if (!p.remote) {
+          this.g.damage(t, head ? d.head : d.dmg, { attacker: p.owner, weapon: d.id, head, pos, dir, trick: p.bounces > 0 });
+          if (t.alive && d.knockback) this.g.push(t, V(dir.x * d.knockback, 2, dir.z * d.knockback));
+        }
+        sfx.splat(pos, 'ball'); this.g.effects.sparks(pos, null, 4, 0xd8f040);
+        const spd = p.vel.length() * 0.55; p.vel.set(-dir.x * spd * 0.5, 3.5, -dir.z * spd * 0.5); p.bounces++;   // pings off them
+        return p.bounces > (d.bounces ?? 5);
+      }
+      case 'spear':
+        if (!p.remote) this.g.damage(t, head ? d.spear.head : d.spear.dmg, { attacker: p.owner, weapon: d.id, head, pos, dir, thrown: true, dist: p.owner.pos.distanceTo(t.pos) });
+        this.g.effects.blood(pos); this.g.effects.blood(pos); sfx.thud(pos);
+        p.spent = true; p.grav = -20; p.vel.set(-dir.x * 1.5, 2.5, -dir.z * 1.5); p.pos.copy(pos).addScaledVector(dir, -0.3); return false;   // drops at their feet
       case 'molotov': if (!p.remote) this.igniteMolotov(p, pos.clone().setY(this.world.groundHeightAt(pos.x, pos.z, pos.y + 0.5))); return true;
       case 'sticky': p.stuck = { actor: t, offset: pos.clone().sub(t.pos) }; p.vel.set(0, 0, 0); return false;
       default: p.vel.multiplyScalar(-0.3); return false; // grenades bounce off people
@@ -370,6 +404,23 @@ export class Combat {
         if (p.bounces < 4) sfx.thud(pos);
         return false;
       }
+      case 'snowball': this.g.effects.snowPuff(pos, 1); this.g.effects.decal(pos, n, 0xf4f8ff, 0.32 * (p.def.projScale || 1), 'snow'); sfx.splat(pos, 'snow'); return true;
+      case 'paintball':
+        if (box?.kind === 'barricade' && !p.remote) this.damageBarricade(box.ref, p.def.dmg);
+        if (box?.kind === 'sentry' && !p.remote) this.damageSentry(box.ref, p.def.dmg, p.owner);
+        this.g.effects.decal(pos, n, p.color, 0.22 + Math.random() * 0.14, 'paint'); this.g.effects.paintBurst(pos, p.color, 5); sfx.splat(pos); return true;
+      case 'tennis': {
+        if (box?.kind === 'ceiling' && p.bounces > 2) return true;
+        p.pos.copy(pos); p.vel.addScaledVector(n, -1.8 * p.vel.dot(n)); p.vel.multiplyScalar(0.84); p.bounces++; p.hits = null;
+        sfx.splat(pos, 'ball');
+        return p.bounces > (p.def.bounces ?? 5) || p.vel.length() < 4;
+      }
+      case 'spear':
+        p.pos.copy(pos).addScaledVector(dir, 0.25); p.vel.set(0, 0, 0); p.stuck = { world: true }; p.landed = true; p.mesh.position.copy(p.pos);
+        this.g.effects.sparks(pos, n, 6); sfx.thud(pos);
+        if (box?.kind === 'barricade' && !p.remote) this.damageBarricade(box.ref, p.def.spear.dmg);
+        if (box?.kind === 'sentry' && !p.remote) this.damageSentry(box.ref, p.def.spear.dmg, p.owner);
+        return false;
       case 'molotov': if (!p.remote) this.igniteMolotov(p, pos); else this.g.effects.explosion(pos, 1.5, { small: true }); return true;
       case 'sticky': p.stuck = { world: true }; p.pos.copy(pos); p.vel.set(0, 0, 0); p.mesh.quaternion.setFromUnitVectors(UP, n); return false;
       case 'mine':
@@ -394,7 +445,7 @@ export class Combat {
       case 'smoke': this.makeSmoke(p.pos.clone(), p.def.smoke); this.g.onWorldEvent?.('smoke', { pos: p.pos.toArray() }); return true;
       case 'flash': this.flashbang(p); return true;
       case 'bolt': case 'shuriken': return true;
-      case 'slipper': case 'mine': return false;
+      case 'slipper': case 'mine': case 'spear': return false;
       default: return true;
     }
   }
@@ -548,9 +599,9 @@ export class Combat {
     const side = _d.set(-dir.z, 0, dir.x).normalize();
     for (const off of d.twin ? [-0.07, 0.07] : [0]) for (let i = 0; i < 5; i++) {
       const v = jitter(dir, d.cone * 0.8).multiplyScalar(d.range * 1.25 + Math.random() * 6).add(a.vel);
-      this.g.effects.flame(muzzle.clone().addScaledVector(dir, 0.1).addScaledVector(side, off), v, d.range / 11, !!d.cryo);
+      this.g.effects.flame(muzzle.clone().addScaledVector(dir, 0.1).addScaledVector(side, off), v, d.range / 11, d.water ? 'water' : !!d.cryo);
     }
-    sfx.shot(d.cryo ? 'cryo' : 'flame', a === this.g.player ? null : a.chest(V()), 0.7);
+    sfx.shot(d.water ? 'water' : d.cryo ? 'cryo' : 'flame', a === this.g.player ? null : a.chest(V()), 0.7);
     this.g.onFired(a, d, muzzle, dir);
     for (const t of this.enemiesOf(a)) {
       const c = t.chest(_a); const v = _b.subVectors(c, eye); const dist = v.length();
@@ -559,9 +610,19 @@ export class Combat {
       if (ang > d.cone + Math.atan(0.45 / Math.max(0.5, dist))) continue;
       if (!this.world.lineOfSight(eye, c)) continue;
       if (d.cryo) { this.g.damage(t, d.dmg, { attacker: a, weapon: d.id, pos: c }); if (t.alive) this.g.chill(t, d.cryo, d.interval); continue; }
+      if (d.water) {
+        this.g.damage(t, d.dmg, { attacker: a, weapon: d.id, pos: c });
+        if (t.alive) {   // shove in short hops (a tiny push every tick would just be eaten by ground friction)
+          const acc = (this.soak ||= new Map()); const v = (acc.get(t) || 0) + d.interval; acc.set(t, v);
+          if (v >= 0.25) { acc.set(t, 0); const k = d.water.push * 4 * (1 - dist / (d.range + 1) * 0.5); this.g.push(t, V(dir.x * k, 2.2, dir.z * k), true); }
+          if (t.fx.burn) t.fx.burn = null;
+        }
+        continue;
+      }
       this.g.damage(t, d.dmg, { attacker: a, weapon: d.id, fire: true, explosive: true, pos: c });
       if (t.alive) t.fx.burn = { dps: d.burn.dps, t: d.burn.time, owner: a, acc: 0 };
     }
+    if (d.water) { this.douse(a, eye, dir, d.range); return; }
     if (d.cryo) return;   // cryo doesn't ignite smoke
     // ignite smoke clouds along the stream
     const end = eye.clone().addScaledVector(dir, d.range);
@@ -579,15 +640,42 @@ export class Combat {
     }
   }
 
+  // Water Gun: puts out burning teammates (and yourself) in the stream and shrinks fire pools it sprays
+  douse(a, eye, dir, range) {
+    for (const t of this.g.actors) {
+      if (!t.alive || !t.fx.burn || this.g.hostile(a, t)) continue;
+      const v = _b.subVectors(t.chest(_a), eye); const dd = v.length(); if (t !== a && (dd > range || v.normalize().angleTo(dir) > 0.3)) continue;
+      t.fx.burn = null;
+    }
+    for (const f of this.fires) {
+      const tt = THREE.MathUtils.clamp(_b.subVectors(f.pos, eye).dot(dir), 0, range + 3); const cl = _c.copy(eye).addScaledVector(dir, tt);
+      if (Math.hypot(cl.x - f.pos.x, cl.z - f.pos.z) < f.radius && cl.y - f.pos.y < 3) { f.t += 0.25; if (f.t >= f.time - 0.05 && !f.doused) { f.doused = true; this.g.effects.snowPuff(f.pos.clone().setY(f.pos.y + 0.4), 2, 0xd8dde2); } }
+    }
+  }
+
   // ═════════════════ melee ═════════════════
   tickMelee(a, ws, it) {
     const d = ws.def;
+    if (d.spear) {   // LMB throws the spear, RMB stabs with it — both need the spear in hand
+      if (ws.mag <= 0 || ws.cooldown > 0) return;
+      if (it.firePressed) return this.throwSpear(a, ws);
+      if (it.altPressed) { ws.cooldown = d.interval; ws.swing = 0.001; ws.pendingHit = 0.12; sfx.whoosh(a === this.g.player ? null : a.chest(V()), true); this.g.onFired(a, d, null, a.aimDir(V())); }
+      return;
+    }
     if (d.grapple && it.altPressed) { if (a.grapple) a.releaseGrapple(false); else if (a.grappleCd <= 0) this.fireGrapple(a, d); }
     if (it.altPressed && d.ability && a.fx.scytheCd <= 0) { a.fx.scythe = d.ability.time; a.fx.scytheCd = d.ability.cooldown; sfx.whoosh(null, true); this.g.onAbility?.(a); }
     if (!it.fire || ws.cooldown > 0) return;
     ws.cooldown = d.interval; ws.swing = 0.001; ws.pendingHit = Math.min(0.12, d.interval * 0.35);
     sfx.whoosh(a === this.g.player ? null : a.chest(V()), d.interval > 0.8);
     this.g.onFired(a, d, null, a.aimDir(V()));
+  }
+  throwSpear(a, ws) {
+    const d = ws.def; const aim = a.aimDir(V()); const eye = a.eye(V());
+    const vel = aim.clone().multiplyScalar(d.spear.vel * (1 + (a.mods.throw || 0) * 0.3)); vel.y += 1.2;
+    this.spawnProj(a, d, 'spear', eye.clone().addScaledVector(aim, 0.5), vel, { visFrom: this.g.muzzleWorld(a, V()), fuse: Infinity });
+    ws.mag = 0; ws.recharge = d.spear.ret; ws.cooldown = 0.45; ws.swing = 0.001; a.stats.throws++;
+    sfx.shot('throw', a === this.g.player ? null : a.chest(V()), 1.1); sfx.whoosh(a === this.g.player ? null : a.chest(V()), true);
+    this.g.onFired(a, d, null, aim);
   }
   // Grapple Hook (RMB): latch onto the first wall / roof / enemy along the aim line and zip to it
   fireGrapple(a, d) {
@@ -599,6 +687,7 @@ export class Combat {
     a.lastShotT = this.g.time;
     if (!ah && !wh) { a.grappleCd = 0.45; this.g.effects.tether(muzzle, eye.clone().addScaledVector(dir, cfg.range * 0.6), 0.18, 0x9aa3ad, 0.012); return false; }
     a.grappleCd = cfg.cooldown; a.slideT = 0;
+    if (a === this.g.player) this.g.ach?.('grapples');
     const t = ah ? ah.t : wh.t;
     const to = ah ? ah.actor.pos.clone().setY(ah.actor.pos.y + 1.0) : wh.point.clone().addScaledVector(wh.normal, 0.35);
     a.grapple = { to, actor: ah ? ah.actor : null, t: 0, fly: Math.min(0.3, t / 140), cfg, id: this.seq++ };

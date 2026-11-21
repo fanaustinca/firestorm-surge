@@ -30,7 +30,7 @@ export class Game {
     this.canvas = canvas; this.profile = profile;
     const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     r.setPixelRatio(Math.min(devicePixelRatio, 2)); r.setSize(innerWidth, innerHeight);
-    r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFShadowMap;
+    r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFSoftShadowMap;
     r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.0; r.outputColorSpace = THREE.SRGBColorSpace;
     r.autoClear = false;
     this.scene = new THREE.Scene();
@@ -60,6 +60,7 @@ export class Game {
     this.studio = null; this.last = performance.now(); this.botFind = findPath;
     addEventListener('resize', () => this.resize());
     this.input.on('key', (k) => this.onKey(k));
+    profile.onAchievement = (a) => { if (this.state === 'playing') { this.hud.achievement(a); sfx.ui('buy'); } else this.ui?.achToast?.(a); };
     this.input.on('lock', (l) => { if (!l && this.state === 'playing' && this.autoPause && !this.match?.ended) this.ui?.pause(true); });
     this.resize();
     requestAnimationFrame((t) => this.frame(t));
@@ -188,7 +189,7 @@ export class Game {
     const atk = info.attacker;
     if (!this.owns(t)) {
       if (atk && this.owns(atk)) {
-        this.net.event({ t: 'hit', target: t.id, amount, head: !!info.head, weapon: info.weapon, attacker: atk.id, explosive: !!info.explosive, fire: !!info.fire, emotional: !!info.emotional, melee: !!info.melee, pos: info.pos?.toArray?.() });
+        this.net.event({ t: 'hit', target: t.id, amount, head: !!info.head, weapon: info.weapon, attacker: atk.id, explosive: !!info.explosive, fire: !!info.fire, emotional: !!info.emotional, melee: !!info.melee, paint: info.paint || 0, pos: info.pos?.toArray?.() });
         if (atk === this.player) { this.hud.hitmarker(info.head, false); sfx.hit(info.head); }
         if (info.emotional) this.emotionalFx(t, atk);
       }
@@ -213,12 +214,14 @@ export class Game {
       const src = info.pos ? new THREE.Vector3(...(info.pos.toArray ? info.pos.toArray() : info.pos)) : atk?.pos;
       if (src && atk !== t) { const d = _a.subVectors(src, t.pos); const ang = Math.atan2(d.x, d.z) - Math.atan2(-Math.sin(t.yaw), -Math.cos(t.yaw)); this.hud.damageFrom(-ang); }
       this.shake = Math.max(this.shake, Math.min(0.4, total / 200));
+      if (info.paint) this.hud.paint(info.paint);
     }
     if (info.emotional) { this.emotionalFx(t, atk); if (atk) atk.stats.emotional++; }
     if (killed) this.kill(t, info);
   }
   emotionalFx(t, atk) {
     this.effects.popup('EMOTIONAL DAMAGE', t.headPos(V()).add(_b.set(0, 0.7, 0)));
+    if (atk === this.player && t !== this.player && !t.isTarget) this.ach('emotional');
     if (t === this.player || atk === this.player) { this.hud.emotional(); this.wobble = 0.8; sfx.emotional(); }
     this.lastEmotional = { target: t.id, time: this.time };
   }
@@ -239,7 +242,14 @@ export class Game {
       if (tier) this.hud.toast(`${tier.name} skin unlocked for ${WEAPON_BY_ID[baseId(info.weapon)]?.name}!`, 'gold');
       this.awardKill(t, info);
     }
-    if (t === this.player) { this.vm.visible = false; t.prevSpawnSlot = t.slot; }
+    if (t === this.player) {
+      this.vm.visible = false; t.prevSpawnSlot = t.slot;
+      if (!this.match?.mode.practice) {
+        this.ach('deaths');
+        if (t.aliveSince != null && this.time - t.aliveSince < 5) this.ach('quickDeaths');
+        if (killer === t && (info.explosive || isExplosive(WEAPON_BY_ID[info.weapon] || {}))) this.ach('selfKills');
+      }
+    }
     if (this.owns(t) && this.net.connected) this.net.event({ t: 'kill', victim: t.id, killer: killer?.id, weapon: info.weapon, head: !!info.head, melee: !!info.melee, explosive: !!info.explosive });
   }
   // Kill bounty: paid immediately and shown in the ELIMINATED banner. Throwables (mine, grenade, molotov…) pay extra.
@@ -257,8 +267,20 @@ export class Game {
       profile.addCoins(coins); this.killCoins += coins;
     }
     this.killCount++;
+    if (!practice) {   // lifetime achievement counters
+      const bid = baseId(info.weapon);
+      this.ach('kills');
+      if (info.head) this.ach('headshots');
+      if (info.melee || (w.kind === 'melee' && !info.thrown)) this.ach('meleeKills');
+      if (info.explosive || w.splash || (w.kind === 'throwable' && w.dmg)) this.ach('explosiveKills');
+      const per = { snowball_launcher: 'snowKills', paintball_gun: 'paintKills', water_gun: 'waterKills', tennis_launcher: 'tennisKills', spear: 'spearKills' }[bid];
+      if (per) this.ach(per);
+      if (info.trick) this.ach('trickKills');
+      if (bid === 'spear' && info.thrown && (info.dist || 0) >= 30) this.ach('javelinKills');
+    }
     this.hud.killBanner(victim.name, info.weapon, coins, tags.join(' · '));
   }
+  ach(stat, n = 1) { return profile.bump(stat, n); }
   blind(t, time) { if (!this.owns(t)) { this.net.event({ t: 'blind', target: t.id, time }); return; } t.fx.flash = Math.max(t.fx.flash, time); if (t === this.player) { this.hud.flash(time); sfx.ring(time); } }
   // velocity impulse (knockback / harpoon reel) — applied by whoever simulates that actor
   push(t, v, airborne = false) {
@@ -361,7 +383,7 @@ export class Game {
       case 'sentry_hit': { const s = this.combat.sentries.find((x) => x.id === e.id); if (s && !s.remote) { s.hp -= e.dmg; s.flashT = 0.12; if (s.hp <= 0) this.combat.destroySentry(s, true); } break; }
       case 'rope': { const a = A(e.a); if (!a || this.owns(a)) return; a.netRope = e.to ? { to: new THREE.Vector3(...e.to), actor: e.act ? A(e.act) : null, t: 0, fly: e.fly || 0.1, life: 2.6 } : null; break; }
       case 'w:barricade_down': { const b = this.combat.barricades.find((x) => x.id === e.id); if (b) this.combat.destroyBarricade(b); break; }
-      case 'hit': { const t = A(e.target); if (t && this.owns(t)) this.applyDamage(t, e.amount, { attacker: A(e.attacker), weapon: e.weapon, head: e.head, explosive: e.explosive, fire: e.fire, emotional: e.emotional, melee: e.melee, pos: e.pos }); break; }
+      case 'hit': { const t = A(e.target); if (t && this.owns(t)) this.applyDamage(t, e.amount, { attacker: A(e.attacker), weapon: e.weapon, head: e.head, explosive: e.explosive, fire: e.fire, emotional: e.emotional, melee: e.melee, paint: e.paint, pos: e.pos }); break; }
       case 'kill': { const t = A(e.victim); if (!t || this.owns(t)) return; if (t.alive) { t.alive = false; t.deathT = 0; t.stats.deaths++; const k = A(e.killer); if (k && k !== t) { k.stats.kills++; } this.match.onKill(t, k); this.hud.killfeed(k, t, e.weapon, e.head); if (k === this.player) { sfx.kill(); this.hud.hitmarker(e.head, true); profile.addWeaponKill(baseId(e.weapon)); if (e.melee) k.stats.meleeKills++; if (e.explosive) k.stats.explosiveKills++; this.awardKill(t, { weapon: e.weapon, head: e.head, melee: e.melee, explosive: e.explosive }); } } break; }
       case 'blind': { const t = A(e.target); if (t && this.owns(t)) this.blind(t, e.time); break; }
       case 'stun': { const t = A(e.target); if (t && this.owns(t)) this.stun(t, e.time); break; }
@@ -407,7 +429,7 @@ export class Game {
           if (wish.lengthSq() > 0) wish.normalize();
           const wasGround = p.onGround;
           if (frozen) wish.set(0, 0, 0);
-          if (it.slide && !frozen && p.trySlide(wish)) sfx.slide?.(null);
+          if (it.slide && !frozen && p.trySlide(wish)) { sfx.slide?.(null); this.ach('slides'); }
           p.move(dt, this.map.world, wish, it.jumpPressed && !frozen, it.forward && !frozen ? p.forward(V()) : null);
           // footsteps
           const spd = Math.hypot(p.vel.x, p.vel.z); p.stepAcc = (p.stepAcc || 0) + spd * dt;
@@ -638,7 +660,7 @@ export class Game {
     }
     const st = this.studio; st.holder.clear();
     const item = buildItem(id, { skin: opts.skin || null, holiday: opts.holiday });
-    const MELEE = ['knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer'];
+    const MELEE = ['spear', 'knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer'];
     const g = new THREE.Group(); g.add(item);
     if (MELEE.includes(id)) item.rotation.set(0, 0, -Math.PI / 2 + 0.12);
     if (id === 'slippers') item.rotation.set(0.9, 0.5, 0);

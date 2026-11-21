@@ -66,6 +66,18 @@ add({ id: 'cryo_sprayer', name: 'Cryo Sprayer', slot: 1, price: 1150, speed: 0.9
 add({ id: 'harpoon_gun', name: 'Harpoon Gun', slot: 1, price: 1100, speed: 0.95,
   kind: 'projectile', proj: 'harpoon', mode: 'semi', interval: 1.0, dmg: 70, head: 110, mag: 1, reserve: 10, reload: 1.5, range: 45, vel: 62,
   pull: 1, recoil: 0.05, ads: 1.2, desc: 'Spears an enemy and reels them right up to you. Pairs well with melee.' });
+add({ id: 'snowball_launcher', name: 'Snowball Launcher', slot: 1, price: 950, speed: 0.98,
+  kind: 'projectile', proj: 'snowball', mode: 'auto', interval: 0.2, dmg: 30, head: 55, mag: 12, reserve: 60, reload: 2.0, range: 60, vel: 44,
+  frost: { slow: 0.35, time: 1.4, freeze: 99, freezeTime: 0, per: 0.25 }, recoil: 0.02, ads: 1.15, desc: 'Packed-ice snowballs on a lob. Every hit chills the target (-35% speed). Brr.' });
+add({ id: 'paintball_gun', name: 'Paintball Gun', slot: 1, price: 900, speed: 1.02,
+  kind: 'projectile', proj: 'paintball', mode: 'auto', interval: 0.085, dmg: 14, head: 24, mag: 50, reserve: 200, reload: 2.0, range: 70, vel: 85,
+  paint: true, recoil: 0.008, ads: 1.3, desc: '700 RPM hopper gun. Splats paint on walls and on your victims\' screens.' });
+add({ id: 'water_gun', name: 'Water Gun', slot: 1, price: 850, speed: 1.05,
+  kind: 'flame', mode: 'auto', interval: 0.083, dmg: 7, head: 7, mag: 150, reserve: 300, reload: 1.8, range: 15,
+  water: { push: 0.9 }, cone: 0.1, ammoPerShot: 1, ads: 1.1, desc: 'Pressurised super-soaker. Shoves enemies back, puts out fires and burning teammates.' });
+add({ id: 'tennis_launcher', name: 'Tennis Ball Launcher', slot: 1, price: 1000, speed: 0.98,
+  kind: 'projectile', proj: 'tennis', mode: 'semi', interval: 0.26, dmg: 40, head: 80, mag: 8, reserve: 48, reload: 2.2, range: 70, vel: 40,
+  bounces: 5, knockback: 5, fuse: 4, recoil: 0.03, ads: 1.2, desc: 'Ball-machine cannon. Balls bounce 5 times and keep going after hitting someone.' });
 
 // ───────────── Slot 2: Secondary ─────────────
 add({ id: 'pistol', name: 'Standard Pistol', slot: 2, free: true, price: 0, speed: 1.10,
@@ -118,10 +130,14 @@ add({ id: 'shurikens', name: 'Shurikens', slot: 3, price: 650, speed: 1.10,
 add({ id: 'slippers', name: 'Slippers', slot: 3, price: 450, speed: 1.10,
   kind: 'projectile', proj: 'slipper', mode: 'semi', interval: 0.4, dmg: 75, head: 150, mag: 1, reserve: Infinity, cooldown: 4.5, vel: 42, range: 60,
   arc: true, emotional: true, desc: 'One throw. EMOTIONAL DAMAGE.' });
-add({ id: 'grapple_hook', name: 'Grapple Hook', slot: 3, price: 900, speed: 1.08,
+add({ id: 'grapple_hook', name: 'Grapple Hook', slot: 3, price: 1800, speed: 1.08,
   kind: 'melee', interval: 0.55, dmg: 50, head: 80, reach: 2.4, arc: 0.7,
   grapple: { range: 42, speed: 25, accel: 95, time: 1.9, cooldown: 1.4, hitDmg: 25 },
   desc: 'LMB: claw strike. RMB: fire the hook and zip to any wall, roof or enemy (42 m).' });
+add({ id: 'spear', name: 'Spear', slot: 3, price: 1100, speed: 1.0,
+  kind: 'melee', interval: 0.75, dmg: 120, head: 260, reach: 3.1, arc: 0.45, mag: 1, reserve: Infinity,
+  spear: { dmg: 140, head: 320, vel: 46, ret: 6 }, draw: 0.35,
+  desc: 'LMB: hurl it (140 dmg, one-shot headshot). RMB: brutal stab (120 / 260 head). Walk over it to pick it up, or it returns in 6 s.' });
 
 // ───────────── Slot 4: Throwables ─────────────
 add({ id: 'frag', name: 'Frag Grenade', slot: 4, free: true, price: 0, speed: 1.05,
@@ -195,6 +211,10 @@ export const ULTRAS = [
   U('ricochet_disc', { interval: 0.3, dmg: 72, head: 105, mag: 12, reserve: 48, ricochet: 5, twinDisc: true, desc: 'Twin-blade launcher. Fires 2 discs at once that bounce 5 times.' }),
   U('cryo_sprayer', { dmg: 11, head: 11, mag: 300, reserve: 300, range: 18, cone: 0.24, twin: true, cryo: { slow: 0.6, time: 2.2, freeze: 0.9, freezeTime: 1.4 }, desc: 'Twin cryo nozzles. 18 m blizzard that freezes in under a second.' }),
   U('harpoon_gun', { interval: 0.5, dmg: 95, head: 150, mag: 3, reserve: 15, reload: 1.8, vel: 80, desc: 'Triple-shot harpoon cannon. Reel in a whole squad.' }),
+  U('snowball_launcher', { interval: 0.11, dmg: 38, head: 66, mag: 30, reserve: 120, vel: 52, projScale: 1.5, frost: { slow: 0.55, time: 2, freeze: 0.7, freezeTime: 1.0, per: 0.25 }, desc: 'Avalanche cannon. Giant snowballs; three hits freeze an enemy solid.' }),
+  U('paintball_gun', { interval: 0.05, dmg: 17, head: 28, mag: 120, reserve: 360, vel: 100, desc: 'Twin-hopper tournament marker. 1200 RPM rainbow barrage.' }),
+  U('water_gun', { dmg: 10, head: 10, mag: 300, reserve: 300, range: 22, cone: 0.13, twin: true, water: { push: 1.6 }, desc: 'SOAKER 9000. Twin nozzles, 22 m firehose that sends people flying.' }),
+  U('tennis_launcher', { interval: 0.32, dmg: 48, head: 90, mag: 24, reserve: 72, triple: true, bounces: 6, desc: 'Pro ball machine. Serves 3 balls at once that bounce 6 times.' }),
   U('mortar', { interval: 0.3, dmg: 420, head: 420, mag: 6, reserve: 24, reload: 2.2, splash: { radius: 15, max: 300, min: 150 }, cluster: 3, desc: 'Six-shell battery. Every shell bursts into 3 bomblets.' }),
 ];
 export const ULTRA_OF = Object.fromEntries(ULTRAS.map((u) => [u.base, u.id]));
@@ -202,7 +222,7 @@ export const baseId = (id) => (id && id.endsWith('_ultra') ? id.slice(0, -6) : i
 export const WEAPON_BY_ID = Object.fromEntries([...W, ...ULTRAS].map((w) => [w.id, w]));
 export const bySlot = (slot) => W.filter((w) => w.slot === slot);
 export const DEFAULT_LOADOUT = { 1: 'assault_rifle', 2: 'pistol', 3: 'fists', 4: 'frag', 5: 'medkit', 6: 'tactical_gloves' };
-export const isExplosive = (w) => !!(w.splash || w.fire || w.kind === 'flame');
+export const isExplosive = (w) => !!(w.splash || w.fire || (w.kind === 'flame' && !w.water));
 
 // Kill-milestone skins (per weapon)
 export const SKIN_TIERS = [

@@ -5,7 +5,7 @@ import { MAPS } from '../world/maps.js';
 import { MODES } from '../game/match.js';
 import { itemIcon, mapThumb } from '../render/icons.js';
 import { Lobby } from '../net/lobby.js';
-import { profile, RANKS } from '../meta/profile.js';
+import { profile, RANKS, ACHIEVEMENTS, WHEEL } from '../meta/profile.js';
 import { showRewardedAd, gameplay } from '../meta/ads.js';
 import { setHolidayMode, holidayFor } from '../render/models.js';
 import { sfx } from '../core/audio.js';
@@ -47,6 +47,8 @@ export class UI {
           </section>
           <aside>
             <button class="btn wide" id="loadout">LOADOUT & SHOP <kbd>B</kbd></button>
+            <button class="btn wide wheel-btn ${profile.canSpin() ? 'ready' : ''}" id="wheel">🎡 DAILY WHEEL</button>
+            <button class="btn wide" id="achs">🏆 ACHIEVEMENTS · ${ACHIEVEMENTS.filter((a) => profile.achieved(a.id)).length}/${ACHIEVEMENTS.length}</button>
             <div class="panel"><h4>Daily Quests</h4>${q}</div>
             <div class="panel loadprev">${[1, 2, 3, 4, 5, 6].map((s) => { const id = profile.effectiveLoadout()[s]; return `<div class="lp ${id ? '' : 'empty'}"><img src="${id ? itemIcon(id, profile.skinFor(id)) : ''}" alt=""><small>${s} · ${id ? WEAPON_BY_ID[id].name : (profile.slotOpen(s) ? 'Empty' : 'Locked')}</small></div>`; }).join('')}</div>
             ${hol}
@@ -62,6 +64,53 @@ export class UI {
     $('#play').onclick = () => { sfx.init(); sfx.ui(); this.play(); };
     $('#loadout').onclick = () => this.openLoadout(false);
     $('#settings').onclick = () => this.openSettings();
+    $('#wheel').onclick = () => { sfx.init(); sfx.ui(); this.openWheel(); };
+    $('#achs').onclick = () => { sfx.ui(); this.openAchievements(); };
+  }
+
+  // ───────── daily wheel ─────────
+  openWheel() {
+    this.view = 'wheel';
+    const n = WHEEL.length, R = 180, C = 190; const seg = 360 / n;
+    const pt = (deg, r) => { const a = (deg - 90) * Math.PI / 180; return [C + Math.cos(a) * r, C + Math.sin(a) * r]; };
+    const slices = WHEEL.map((w, i) => {
+      const [x0, y0] = pt(i * seg, R), [x1, y1] = pt((i + 1) * seg, R); const mid = i * seg + seg / 2; const [tx, ty] = pt(mid, R * 0.62);
+      return `<path d="M${C},${C} L${x0},${y0} A${R},${R} 0 0 1 ${x1},${y1} Z" fill="${w.color}" stroke="#0d1014" stroke-width="3"/>
+        <text x="${tx}" y="${ty}" transform="rotate(${mid} ${tx} ${ty})" text-anchor="middle" dominant-baseline="middle" fill="#fff" font-weight="900" font-size="${w.label.length > 9 ? 15 : 19}" style="paint-order:stroke;stroke:#0008;stroke-width:3px">${w.label}</text>`;
+    }).join('');
+    const can = profile.canSpin();
+    this.root.innerHTML = `<div class="modal wheel"><header><h2>🎡 DAILY WHEEL</h2><div class="meta">${this.coinsHtml()}<button class="btn ghost" id="wh-close">CLOSE ✕</button></div></header>
+      <p class="status">${can ? 'One free spin every day. Coins, free weapon trials, even a permanent shop skin!' : 'Already spun today — come back tomorrow for another free spin.'}</p>
+      <div class="wheel-wrap"><div class="pin"></div><svg id="wh-svg" viewBox="0 0 380 380"><circle cx="${C}" cy="${C}" r="${R + 8}" fill="#1a1e24" stroke="var(--gold)" stroke-width="4"/>${slices}<circle cx="${C}" cy="${C}" r="26" fill="#1a1e24" stroke="var(--gold)" stroke-width="4"/><text x="${C}" y="${C + 1}" text-anchor="middle" dominant-baseline="middle" fill="var(--gold)" font-size="22">◉</text></svg></div>
+      <div class="wheel-res" id="wh-res"></div>
+      <button class="btn big primary" id="wh-spin" ${can ? '' : 'disabled'}>${can ? 'SPIN!' : 'COME BACK TOMORROW'}</button></div>`;
+    this.root.style.display = 'block';
+    $('#wh-close').onclick = () => this.showMenu();
+    $('#wh-spin').onclick = () => {
+      const res = profile.spin(); if (!res) return;
+      $('#wh-spin').disabled = true; $('#wh-spin').textContent = 'SPINNING…';
+      const target = 360 * 7 - (res.idx * seg + seg / 2) + (Math.random() - 0.5) * seg * 0.6;
+      const svg = $('#wh-svg'); svg.style.transform = `rotate(${target}deg)`;
+      let ticks = 0; const tick = setInterval(() => { if (++ticks > 26) clearInterval(tick); else sfx.click(); }, 130);
+      setTimeout(() => { clearInterval(tick); sfx.ui('buy'); const r = $('#wh-res'); if (r) r.textContent = '🎉 ' + res.text; const b = $('#wh-spin'); if (b) b.textContent = 'COME BACK TOMORROW'; const m = this.root.querySelector('.meta .coins'); if (m) m.outerHTML = this.coinsHtml(); }, this.g.testMode ? 50 : 4700);
+    };
+  }
+
+  // ───────── achievements ─────────
+  openAchievements() {
+    this.view = 'achs';
+    const got = ACHIEVEMENTS.filter((a) => profile.achieved(a.id)).length;
+    const cards = ACHIEVEMENTS.map((a) => { const done = profile.achieved(a.id); const v = Math.min(a.goal, profile.life(a.stat)); return `<div class="ach ${done ? 'done' : ''}"><span class="ai">${a.icon}</span><b>${esc(a.name)}</b><small>${esc(a.desc)} · ${done ? '✓ +' + a.reward + ' ◉' : '◉ ' + a.reward}</small><div class="qbar"><i style="width:${(v / a.goal) * 100}%"></i></div><small>${v.toLocaleString()} / ${a.goal.toLocaleString()}</small></div>`; }).join('');
+    this.root.innerHTML = `<div class="modal achs"><header><h2>🏆 ACHIEVEMENTS</h2><div class="meta">${this.coinsHtml()}<button class="btn ghost" id="ac-close">CLOSE ✕</button></div></header>
+      <p class="ach-sum">${got} / ${ACHIEVEMENTS.length} unlocked · each one pays coins the moment you earn it</p><div class="ach-grid">${cards}</div></div>`;
+    this.root.style.display = 'block';
+    $('#ac-close').onclick = () => this.showMenu();
+  }
+  achToast(a) {
+    const el = document.createElement('div'); el.className = 'menu-toast';
+    el.innerHTML = `<div class="ach-pop"><span class="ai">${a.icon}</span><div><small>ACHIEVEMENT UNLOCKED</small><b>${esc(a.name)}</b><em>${esc(a.desc)}</em></div><i>+${a.reward} ◉</i></div>`;
+    document.body.appendChild(el); setTimeout(() => el.remove(), 4200);
+    if (this.view === 'menu') this.showMenu();
   }
 
   // direct start (practice / DEV / ?autostart) or into the mode's room

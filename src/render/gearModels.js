@@ -431,6 +431,23 @@ function grapple_hook(m) {
   return g;
 }
 
+// ───────── Spear (slot 3): grip at origin, ash shaft along +Y, steel leaf blade on top ─────────
+export function spear(m) {
+  const g = new THREE.Group();
+  const ash = std({ color: 0x8a6440, roughness: 0.7, map: tex('wood') });
+  P(g, cylY(0.016, 0.019, 1.5, 12), ash, 0, 0.2, 0);                                           // shaft (-0.55 → 0.95)
+  for (const y of [-0.06, 0.0, 0.06]) P(g, torus(0.019, 0.005, 12), m.leather, 0, y, 0, PI / 2);   // grip wraps
+  P(g, cylY(0.02, 0.022, 0.06, 12), m.darksteel, 0, -0.56, 0);                                 // butt cap
+  P(g, cylY(0.022, 0.017, 0.09, 12), m.darksteel, 0, 0.98, 0);                                 // socket
+  for (const y of [0.95, 1.0]) P(g, torus(0.021, 0.003, 12), m.brass, 0, y, 0, PI / 2);
+  const leaf = new THREE.Shape(); leaf.moveTo(-0.012, 0); leaf.quadraticCurveTo(-0.05, 0.08, -0.034, 0.16); leaf.lineTo(0, 0.27); leaf.lineTo(0.034, 0.16); leaf.quadraticCurveTo(0.05, 0.08, 0.012, 0); leaf.closePath();
+  P(g, shapeGeo(leaf, 0.006, 0.003, 24), m.steel, 0, 1.02, -0.003);                            // blade
+  P(g, rbox(0.006, 0.22, 0.012, 0.002), m.darksteel, 0, 1.13, 0);                              // midrib
+  P(g, tube([[0.02, 0.9, 0], [0.04, 0.84, 0.02], [0.03, 0.76, 0.01]], 0.004), std({ color: 0xc8261e, roughness: 0.9 }));   // red tassel
+  marker(g, 'tip', 0, 1.29, 0); marker(g, 'muzzle', 0, 1.0, 0);
+  return g;
+}
+
 // ───────── Sentry Turret (slot 5): deployed tripod gun (≈1.1 m) + the carried case ─────────
 export function sentryMesh(m) {
   const g = new THREE.Group();
@@ -467,7 +484,7 @@ function sentry_turret(m) {
   return g;
 }
 export const GEAR_BUILDERS = {
-  grapple_hook, sentry_turret,
+  spear, grapple_hook, sentry_turret,
   land_mine,
   fists, knife, scythe, bat, karambit, katana, sledgehammer, shurikens, slippers,
   frag, smoke_grenade, molotov, flashbang, sticky_bomb,

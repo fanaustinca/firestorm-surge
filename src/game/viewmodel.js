@@ -15,6 +15,7 @@ const POSE = {
   grenade_launcher: [0.2, -0.24, -0.58, 0, 0, 0, 0.95], dmr: [0.19, -0.23, -0.62, 0, 0, 0, 0.95],
   pistol: [0.16, -0.16, -0.46, 0, 0.04, 0, 1], burst_pistol: [0.16, -0.16, -0.46, 0, 0.04, 0, 1], revolver: [0.16, -0.17, -0.46, 0, 0.04, 0, 1], taser: [0.17, -0.2, -0.48, 0, 0, 0, 1], crossbow: [0.17, -0.22, -0.52, 0, 0, 0, 1],
   katana: [0.3, -0.3, -0.52, -0.35, -1.45, 0.42, 0.95, 'ZXY'], knife: [0.22, -0.24, -0.42, -1.15, 0.25, 0.35, 1], karambit: [0.22, -0.24, -0.42, -0.6, 0.3, 0.3, 1],
+  spear: [0.21, -0.26, -0.36, -1.42, 0.08, 0.05, 0.85], snowball_launcher: [0.2, -0.24, -0.6, 0, 0, 0, 0.92], paintball_gun: [0.19, -0.22, -0.58, 0, 0, 0, 0.95], water_gun: [0.2, -0.22, -0.56, 0, 0, 0, 0.95], tennis_launcher: [0.2, -0.24, -0.6, 0, 0, 0, 0.92],
   land_mine: [0.2, -0.26, -0.5, 0.55, 0.3, 0, 0.55], grapple_hook: [0.2, -0.21, -0.48, -1.42, 0.06, 0, 0.95], sentry_turret: [0.04, -0.2, -0.44, 0.25, -0.3, 0, 0.9],
   volt_rail: [0.19, -0.22, -0.62, 0, 0, 0, 0.92], arc_caster: [0.19, -0.22, -0.58, 0, 0, 0, 0.95], ricochet_disc: [0.2, -0.23, -0.58, 0, 0, 0, 0.92], cryo_sprayer: [0.2, -0.22, -0.58, 0, 0, 0, 0.94], harpoon_gun: [0.19, -0.22, -0.6, 0, 0, 0, 0.92], pocket_rocket: [0.16, -0.17, -0.46, 0, 0.04, 0, 1],
   lmg_ultra: [0.25, -0.31, -0.72, 0, 0.06, 0, 0.78], rocket_launcher_ultra: [0.27, -0.37, -0.72, 0, 0.05, 0, 0.68],
@@ -22,7 +23,7 @@ const POSE = {
   bat: [0.32, -0.42, -0.5, -0.3, 0.2, 0.5, 1], sledgehammer: [0.34, -0.48, -0.55, -0.3, 0.25, 0.5, 0.95], scythe: [0.32, -0.9, -0.8, -0.12, 0.35, 0.3, 1],
 };
 const ONE_HAND = ['knife', 'karambit', 'katana', 'frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb', 'land_mine', 'shurikens', 'slippers', 'pistol', 'revolver', 'taser', 'pocket_rocket', 'adrenaline', 'shockwave_grenade', 'black_hole', 'grapple_hook'];
-const MELEE = ['knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer', 'grapple_hook'];
+const MELEE = ['knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer', 'grapple_hook', 'spear'];
 
 export class ViewModel {
   constructor(renderer) {
@@ -160,6 +161,7 @@ export class ViewModel {
       } else this.punch = null;
       if (s > 0 && s < 0.02) ws.swingN = (ws.swingN || 0) + 1;
     }
+    if (this.id === 'spear' && ws) this.item.visible = ws.mag > 0;
     if (a.fx.scythe > 0 && this.id === 'scythe') { rot.z += Math.sin(performance.now() * 0.02) * 0.03; }
     // throwables: cook pose & throw
     if (this.kind === 'throw' && ws) {
@@ -216,7 +218,7 @@ export class ViewModel {
       else this.placeArm(L, grip.clone().add(V(-0.035, -0.035, 0.02)), SHOULDER_L, -1.0);
     } else if (this.kind === 'melee') {
       const h = toRoot(V(0, -0.05, 0)); this.placeArm(R, h, SHOULDER_R, 1.4);
-      if (['scythe', 'sledgehammer', 'bat'].includes(this.id)) this.placeArm(L, toRoot(V(0, this.id === 'scythe' ? 0.6 : 0.16, 0)), SHOULDER_L, -1.4);
+      if (['scythe', 'sledgehammer', 'bat', 'spear'].includes(this.id)) this.placeArm(L, toRoot(V(0, this.id === 'scythe' ? 0.6 : this.id === 'spear' ? 0.42 : 0.16, 0)), SHOULDER_L, -1.4);
       else this.placeArm(L, V(-0.26, -0.36, -0.36), SHOULDER_L, -0.4);
     } else {
       const h = toRoot(V(0, -0.02, 0.03)); this.placeArm(R, h, SHOULDER_R, 1.0);

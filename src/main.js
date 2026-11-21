@@ -44,6 +44,7 @@ game.onMatchEnd = (winner) => {
   const rp = win ? (WIN_POINTS[game.modeId] || 50) : 0; const rankUp = rp ? profile.addRank(rp) : false;
   profile.d.totals.kills += s.kills; profile.d.totals.deaths += s.deaths; profile.d.totals.matches++; if (win) profile.d.totals.wins++;
   const quests = profile.questProgress({ ...s, wins: win ? 1 : 0, matches: 1 });
+  if (!m.mode.practice) { profile.bump('matches'); profile.bump(win ? 'wins' : winner == null ? 'draws' : 'losses'); if (s.kills === 0) profile.bump('zeroKillMatches'); profile.bump('damage', Math.round(s.damage)); }
   profile.save(); profile.clearTrials(); gameplay.stop(); if (win) gameplay.happy();
   const board = [...game.actors].sort((a, b) => b.stats.kills - a.stats.kills).map((a) => ({ name: a.name, team: a.team, k: a.stats.kills, d: a.stats.deaths, dmg: Math.round(a.stats.damage), me: a === p }));
   const subtitle = m.roundBased ? `Rounds ${m.rounds.red}–${m.rounds.blue}` : m.mode.teams ? `Red ${m.score.red} – Blue ${m.score.blue}` : `Winner: ${game.actors.find((a) => a.id === winner)?.name || '—'}`;

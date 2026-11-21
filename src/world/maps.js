@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CollisionWorld } from './collision.js';
-import { tex } from '../render/textures.js';
+import { tex, texNormal } from '../render/textures.js';
 import { Terrain, mountainRing } from './terrain.js';
 
 export const SIZE = 60, HALF = SIZE / 2;
@@ -885,8 +885,96 @@ export function buildMap(id, { nav: withNav = true } = {}) {
   if (b.world.pits && b.groundMesh) cutGround(b.groundMesh.geometry, b.world);
   if (env.mountains) mountainRing(b.group, { bounds: b.world.bounds ?? 30, ...env.mountains });
   if (b.snowCaps) snowCaps(b);
+  polish(id, b, env);
   const nav = withNav ? buildNav(b.world) : null;
   return { id, group: b.group, world: b.world, spawns: b.spawns, nav, env, info: MAPS[id] };
+}
+
+// ═════════ visual polish (v2.6): relief normal maps, ground colour variation, ground clutter ═════════
+const DETAIL = {
+  cargo_yard: { weeds: 500, pebbles: 500, debris: 160, stains: 40, grass: [0x6a7a3a, 0x8a8a4a] },
+  desert_outpost: { weeds: 420, pebbles: 900, debris: 40, grass: [0xa89a5a, 0xc8b070], dry: true },
+  abandoned_city: { weeds: 900, pebbles: 600, debris: 420, stains: 30, grass: [0x5a7a32, 0x7a8a3a] },
+  underground_lab: { debris: 60, stains: 24 },
+  frostbite: { pebbles: 380, snow: 520, grass: [0x8a9a7a, 0xa0a890], weeds: 120, dry: true },
+  jungle_temple: { weeds: 3800, pebbles: 400, flowers: 420, ferns: 260, grass: [0x3f7a2a, 0x5a9a34, 0x6f8a2a] },
+  neon_market: { debris: 220, puddles: 34, stains: 20, pebbles: 200 },
+  refinery: { weeds: 520, pebbles: 600, debris: 200, stains: 60, grass: [0x5f7030, 0x7a7a3a] },
+};
+const NO_RELIEF = new Set(['hazard', 'vines', 'sky', 'soft', 'smokepuff', 'splat', 'snowsplat', 'wrap', 'grip']);
+function polish(id, b, env) {
+  // 1) relief: every textured opaque map material gets a matching normal map
+  const seen = new Set();
+  b.group.traverse((o) => {
+    if (!o.isMesh) return; const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of mats) {
+      if (!m || seen.has(m) || !m.map || m.transparent || m.normalMap || NO_RELIEF.has(m.map.userData?.texName)) continue;
+      seen.add(m); const n = texNormal(m.map); if (n) { m.normalMap = n; m.normalScale = new THREE.Vector2(0.7, 0.7); m.needsUpdate = true; }
+    }
+  });
+  const cfg = DETAIL[id]; if (!cfg) return;
+  const w = b.world; const r = rng(id.length * 131 + 7);
+  const ground = (x, z) => (w.terrain ? w.terrain.at(x, z) : 0);
+  // 2) large-scale colour variation on the ground so the tiling disappears
+  if (b.groundMesh && !env.indoor) {
+    const g = b.groundMesh.geometry; const pa = g.attributes.position; const col = new Float32Array(pa.count * 3);
+    const n = (x, z) => Math.sin(x * 0.11 + Math.sin(z * 0.07) * 2) * 0.5 + Math.sin(z * 0.13 + x * 0.05) * 0.35 + Math.sin((x + z) * 0.31) * 0.15;
+    for (let i = 0; i < pa.count; i++) { const v = 0.9 + n(pa.getX(i), pa.getZ(i)) * 0.11 + (r() - 0.5) * 0.03; col[i * 3] = v; col[i * 3 + 1] = v * (cfg.dry ? 0.99 : 1.0); col[i * 3 + 2] = v * 0.97; }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3)); b.groundMesh.name = 'ground'; b.groundMesh.material.vertexColors = true; b.groundMesh.material.needsUpdate = true;
+  }
+  // free ground spots: not under a standing collider, not over a tunnel opening
+  const half = (w.bounds ?? 30) - 0.6;
+  const free = (x, z, pad = 0.25) => {
+    if (w.pitAt && w.pitAt(x, z) === 'o') return false;
+    for (const bx of w.query(x - pad, z - pad, x + pad, z + pad)) if (!bx.noCollide && bx.min[1] < 0.6 + ground(x, z) && x > bx.min[0] - pad && x < bx.max[0] + pad && z > bx.min[2] - pad && z < bx.max[2] + pad) return false;
+    return true;
+  };
+  const spots = (count, pad) => { const out = []; for (let k = 0; k < count * 3 && out.length < count; k++) { const x = (r() * 2 - 1) * half, z = (r() * 2 - 1) * half; if (free(x, z, pad)) out.push([x, z]); } return out; };
+  const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), E = new THREE.Euler(), S = new THREE.Vector3(), P0 = new THREE.Vector3(), C = new THREE.Color();
+  const inst = (geo, mat, list, place, { shadow = false } = {}) => {
+    if (!list.length) return null;
+    const im = new THREE.InstancedMesh(geo, mat, list.length);
+    list.forEach((sp, i) => { const c = place(sp, i); M.compose(P0.set(sp[0], ground(sp[0], sp[1]) + (c.y || 0), sp[1]), Q.setFromEuler(E.set(c.rx || 0, c.ry ?? r() * 6.28, c.rz || 0)), S.set(...c.s)); im.setMatrixAt(i, M); if (c.col != null) im.setColorAt(i, C.set(c.col)); });
+    im.castShadow = shadow; im.receiveShadow = true; b.group.add(im); return im;
+  };
+  // grass / weed tufts: 5 tapered blades fanned around the root
+  if (cfg.weeds) {
+    const blades = []; for (let k = 0; k < 5; k++) { const a = (k / 5) * Math.PI * 2; const bl = new THREE.PlaneGeometry(0.06, 1, 1, 3); const pp = bl.attributes.position; for (let i = 0; i < pp.count; i++) { const y = pp.getY(i) + 0.5; pp.setX(i, pp.getX(i) * (1 - y * 0.85)); pp.setZ(i, y * y * 0.25); pp.setY(i, y); } bl.rotateY(a); bl.translate(Math.cos(a) * 0.04, 0, Math.sin(a) * 0.04); blades.push(bl); }
+    const tuft = mergeGeometries(blades); tuft.computeVertexNormals();
+    const gm = std({ color: 0xffffff, roughness: 0.9, side: THREE.DoubleSide });
+    const cols = cfg.grass;
+    // clumped placement: tufts gather around seed points (looks natural, not uniform noise)
+    const seeds = spots(Math.ceil(cfg.weeds / 9), 0.4); const list = [];
+    for (const [sx, sz] of seeds) for (let k = 0; k < 9; k++) { const x = sx + (r() - 0.5) * 2.2, z = sz + (r() - 0.5) * 2.2; if (Math.abs(x) < half && Math.abs(z) < half && free(x, z, 0.15)) list.push([x, z]); }
+    inst(tuft, gm, list, () => { const h = 0.18 + r() * (cfg.dry ? 0.22 : 0.42); const c = new THREE.Color(cols[(r() * cols.length) | 0]).offsetHSL((r() - 0.5) * 0.04, 0, (r() - 0.5) * 0.08); return { s: [0.8 + r() * 0.8, h, 0.8 + r() * 0.8], col: c.getHex() }; });
+  }
+  if (cfg.ferns) {
+    const leaf = new THREE.PlaneGeometry(0.22, 0.9, 1, 4); const lp = leaf.attributes.position; for (let i = 0; i < lp.count; i++) { const y = lp.getY(i) + 0.45; lp.setX(i, lp.getX(i) * Math.sin(Math.min(1, y / 0.9) * Math.PI)); lp.setZ(i, y * y * 0.5); lp.setY(i, y * 0.55); }
+    const fern = mergeGeometries([0, 1, 2, 3, 4, 5].map((k) => leaf.clone().rotateY(k * 1.047))); fern.computeVertexNormals();
+    inst(fern, std({ color: 0xffffff, roughness: 0.85, side: THREE.DoubleSide }), spots(cfg.ferns, 0.6), () => { const s = 0.7 + r() * 0.9; return { s: [s, s, s], col: new THREE.Color(0x2f6a22).offsetHSL((r() - 0.5) * 0.05, 0, (r() - 0.5) * 0.08).getHex() }; }, { shadow: true });
+  }
+  if (cfg.flowers) inst(new THREE.IcosahedronGeometry(0.05, 0), std({ color: 0xffffff, roughness: 0.6 }), spots(cfg.flowers, 0.2), () => ({ y: 0.14 + r() * 0.2, s: [1, 0.6, 1], col: [0xff5a7a, 0xffd23a, 0xffffff, 0xc070ff, 0xff8a2a][(r() * 5) | 0] }));
+  if (cfg.pebbles) {
+    const pm = std({ color: 0xffffff, roughness: 0.92, flatShading: true });
+    const base = id === 'desert_outpost' ? 0xa88a62 : id === 'frostbite' ? 0x5a5e64 : id === 'jungle_temple' ? 0x6a6458 : 0x5e5a56;
+    inst(new THREE.DodecahedronGeometry(1, 0), pm, spots(cfg.pebbles, 0.15), () => { const s = 0.03 + r() * r() * 0.1; return { y: s * 0.2, s: [s * (0.8 + r() * 0.6), s * 0.55, s * (0.8 + r() * 0.6)], rx: r() * 3, col: new THREE.Color(base).offsetHSL(0, (r() - 0.5) * 0.05, (r() - 0.5) * 0.12).getHex() }; });
+  }
+  if (cfg.snow) inst(new THREE.SphereGeometry(1, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2), std({ color: 0xf2f6fb, roughness: 0.8 }), spots(cfg.snow, 0.3), () => { const s = 0.2 + r() * 0.7; return { y: -0.05, s: [s * (1 + r()), s * 0.25, s], col: 0xffffff }; });
+  if (cfg.debris) {   // rubble chips, bricks, bottles, paper
+    const dm = std({ color: 0xffffff, roughness: 0.85 });
+    const cols = id === 'underground_lab' ? [0x6a7076, 0x4a5056, 0x8a9096] : id === 'neon_market' ? [0x3a3e48, 0x6a6a64, 0x6a4030, 0x2a7070] : [0x6a5e50, 0x7a3a28, 0x55504c, 0x8a8478, 0x3a5a3a];
+    inst(new THREE.DodecahedronGeometry(1, 0), std({ color: 0xffffff, roughness: 0.9, flatShading: true }), spots(Math.round(cfg.debris * 0.6), 0.3), () => { const s = 0.05 + r() * 0.1; return { y: s * 0.3, s: [s * 1.4, s * 0.7, s], rx: r() * 3, col: cols[(r() * cols.length) | 0] }; });   // rubble chunks
+    inst(new THREE.BoxGeometry(1, 1, 1), dm, spots(Math.round(cfg.debris * 0.4), 0.3), () => { const t = r(); const s = t < 0.7 ? [0.2, 0.06, 0.1] : [0.06 + r() * 0.06, 0.18 + r() * 0.1, 0.06];   /* bricks, cans */ return { y: s[1] / 2, s, rx: 0, rz: (r() - 0.5) * 0.4, col: cols[(r() * cols.length) | 0] }; }, { shadow: false });
+  }
+  if (cfg.stains) {   // oil / water stains: soft dark blots on the floor
+    const sm = std({ map: tex('splat'), color: 0x000000, transparent: true, opacity: 0.32, depthWrite: false, roughness: 0.3, polygonOffset: true, polygonOffsetFactor: -2 });
+    inst(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), sm, spots(cfg.stains, 0.8), () => { const s = 0.8 + r() * 1.8; return { y: 0.012, s: [s, 1, s * (0.6 + r() * 0.6)] }; });
+  }
+  if (cfg.puddles) {  // rain puddles that mirror the neon
+    const pm = std({ color: 0x0c0e14, roughness: 0.04, metalness: 0.6, transparent: true, opacity: 0.85, polygonOffset: true, polygonOffsetFactor: -2, envMapIntensity: 1.6 });
+    const g = new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2); const gp = g.attributes.position; for (let i = 1; i < gp.count; i++) { const k = 0.75 + 0.25 * Math.sin(i * 2.3) * Math.sin(i * 0.7); gp.setX(i, gp.getX(i) * k); gp.setZ(i, gp.getZ(i) * k); }
+    inst(g, pm, spots(cfg.puddles, 1.2), () => { const s = 0.6 + r() * 1.4; return { y: 0.015, s: [s * (1 + r()), 1, s] }; });
+  }
 }
 
 // remove ground-plane triangles over open stairwells so the tunnels are visible from above

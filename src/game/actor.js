@@ -3,7 +3,8 @@ import * as THREE from 'three';
 import { WEAPON_BY_ID, BASE_HP, MAX_ARMOR, BASE_SPEED, GRAVITY, JUMP_IMPULSE, CLIMB_SPEED, SPEED_MIN, SPEED_MAX, SPEED_ABILITY_MAX } from '../data/weapons.js';
 
 export const RADIUS = 0.4, HEIGHT = 1.8, EYE = 1.6;
-export const SLIDE = { time: 0.85, speed: 13.5, end: 6, cooldown: 0.9, drop: 0.75 };
+// slide: a kick of speed on entry, then ground friction bleeds it off until you stand back up
+export const SLIDE = { boost: 5, min: 11, max: 13, friction: 9.5, stop: 3.2, time: 1.6, cooldown: 0.7, drop: 0.75 };
 
 export class WeaponState {
   constructor(def, mods) {
@@ -67,15 +68,15 @@ export class Actor {
   headPos(out = new THREE.Vector3()) { return out.set(this.pos.x, this.pos.y + 1.62 - this.low * SLIDE.drop, this.pos.z); }
   bodyTop() { return 1.48 - this.low * 0.7; }
 
-  // C: power-slide. Fast, low (smaller hitbox), keeps its momentum into a jump.
+  // C: slide. Entry boost, low (smaller hitbox), then friction slows you down; keeps momentum into a jump.
   trySlide(wish) {
     if (!this.onGround || this.slideT > 0 || this.slideCd > 0 || this.grapple || this.fx.stun > 0 || this.climbing) return false;
     const hs = Math.hypot(this.vel.x, this.vel.z);
     if (hs > 1.5) this.slideDir.set(this.vel.x / hs, 0, this.vel.z / hs);
     else if (wish && wish.lengthSq() > 0.01) this.slideDir.copy(wish).setY(0).normalize();
     else return false;
-    this.slideT = SLIDE.time; this.slideCd = SLIDE.time + SLIDE.cooldown;
-    const sp = Math.max(SLIDE.speed, hs); this.vel.x = this.slideDir.x * sp; this.vel.z = this.slideDir.z * sp;
+    this.slideT = SLIDE.time; this.slideCd = 0;
+    const sp = Math.min(SLIDE.max, Math.max(SLIDE.min, hs + SLIDE.boost)); this.vel.x = this.slideDir.x * sp; this.vel.z = this.slideDir.z * sp; this.slideSpeed = sp;
     return true;
   }
   releaseGrapple(pop = false) {
@@ -147,9 +148,12 @@ export class Actor {
     }
     if (this.slideT > 0) {
       this.slideT -= dt;
-      const k = Math.max(0, this.slideT / SLIDE.time); const sp = SLIDE.end + (SLIDE.speed - SLIDE.end) * k;
-      if (wish.lengthSq() > 0.01) { this.slideDir.x += wish.x * dt * 1.6; this.slideDir.z += wish.z * dt * 1.6; this.slideDir.normalize(); }
-      if (this.onGround) { const hs = Math.max(sp, Math.min(Math.hypot(v.x, v.z), sp + 2)); v.x = this.slideDir.x * hs; v.z = this.slideDir.z * hs; }
+      if (wish.lengthSq() > 0.01) { this.slideDir.x += wish.x * dt * 0.9; this.slideDir.z += wish.z * dt * 0.9; this.slideDir.normalize(); }   // only slight steering
+      if (this.onGround) {
+        const sp = this.slideSpeed = Math.max(0, Math.min(this.slideSpeed ?? SLIDE.min, Math.hypot(v.x, v.z) + 0.5) - SLIDE.friction * dt);   // friction (walls/impacts also cut it)
+        v.x = this.slideDir.x * sp; v.z = this.slideDir.z * sp;
+        if (sp < SLIDE.stop) this.slideT = 0;   // ran out of speed: get up
+      }
       if (jumpPressed || this.fx.stun > 0) this.slideT = 0;   // slide-jump: momentum carries into the air
     } else if (!grappling) {
       // air: don't bleed off speed you already have (slide-jumps / grapple flings keep their momentum)
@@ -161,6 +165,8 @@ export class Actor {
       const dx = tx - v.x, dz = tz - v.z; const dl = Math.hypot(dx, dz); const maxd = accel * dt;
       if (dl <= maxd) { v.x = tx; v.z = tz; } else { v.x += (dx / dl) * maxd; v.z += (dz / dl) * maxd; }
     }
+    if (this.slideT <= 0 && this.wasSliding) this.slideCd = SLIDE.cooldown;   // cooldown starts when you stand up
+    this.wasSliding = this.slideT > 0;
     this.low += ((this.slideT > 0 ? 1 : 0) - this.low) * Math.min(1, dt * 14);
     // climbing: anyone can use ladders/vines/rungs; Fists can scale any wall
     const wasClimbing = this.climbing; this.climbing = false;

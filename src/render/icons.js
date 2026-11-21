@@ -4,7 +4,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { buildItem } from './models.js';
 
 let r = null, scene, cam; const cache = new Map();
-const MELEE_UP = ['knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer'];
+const MELEE_UP = ['spear', 'knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer'];
 
 function init() {
   const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 144;

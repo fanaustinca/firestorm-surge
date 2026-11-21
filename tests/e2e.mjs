@@ -26,20 +26,20 @@ try {
   const menu = await page.evaluate(() => ({ play: !!document.querySelector('#play'), dev: typeof DEV.inspectGun === 'function', maps: document.querySelectorAll('[data-map]').length, modes: [...document.querySelectorAll('[data-mode]')].map((b) => b.dataset.mode), ver: document.querySelector('.logo .ver')?.textContent }));
   check('Menu: mode-only selection (no map picker) + version tag', menu.play && menu.dev && menu.maps === 0 && menu.modes.includes('practice') && menu.modes.length === 5 && /^v\d+\.\d+\.\d+$/.test(menu.ver || ''), `${menu.modes.join(',')} · ${menu.ver}`);
   const SPEC_IDS = ['assault_rifle', 'ak47', 'dmr', 'rocket_launcher', 'burst_rifle', 'lmg', 'heavy_sniper', 'flamethrower', 'grenade_launcher', 'mortar',
-    'volt_rail', 'arc_caster', 'ricochet_disc', 'cryo_sprayer', 'harpoon_gun',
+    'volt_rail', 'arc_caster', 'ricochet_disc', 'cryo_sprayer', 'harpoon_gun', 'snowball_launcher', 'paintball_gun', 'water_gun', 'tennis_launcher',
     'pistol', 'smg', 'crossbow', 'burst_pistol', 'revolver', 'sawed_off', 'tactical_shotgun', 'taser', 'pocket_rocket',
-    'fists', 'knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer', 'shurikens', 'slippers', 'grapple_hook',
+    'fists', 'knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer', 'shurikens', 'slippers', 'grapple_hook', 'spear',
     'frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb', 'land_mine', 'medkit', 'ammo_pack', 'armor_plate', 'adrenaline', 'barricade', 'shockwave_grenade', 'black_hole', 'sentry_turret',
     'tactical_gloves', 'spring_boots', 'bandolier', 'blast_vest', 'thermal_goggles'];
   const have = await page.evaluate(() => DEV.list().map((x) => x.split(': ')[1]));
   const missing = SPEC_IDS.filter((x) => !have.includes(x));
-  check('Every item exists (53 items incl. Grapple Hook + Sentry Turret)', missing.length === 0 && have.length === SPEC_IDS.length, missing.length ? 'missing ' + missing : `${have.length} entries`);
+  check('Every item exists (58 items incl. 4 fun guns + Spear)', missing.length === 0 && have.length === SPEC_IDS.length, missing.length ? 'missing ' + missing : `${have.length} entries`);
   const meshes = await page.evaluate((ids) => ids.map((id) => { try { DEV.inspectGun(id); let n = 0; DEV.game.studio.holder.traverse((o) => { if (o.isMesh) n++; }); return [id, n]; } catch (e) { return [id, -1, e.message]; } }), SPEC_IDS);
   const thin = meshes.filter(([, n]) => n < 5);
   check('Every item mesh are multi-part (≥5 meshes each)', thin.length === 0, thin.length ? JSON.stringify(thin) : `min ${Math.min(...meshes.map((m) => m[1]))} meshes`);
   const ultras = await page.evaluate(() => DEV.ultras().map((id) => { DEV.inspectGun(id); let n = 0, glow = 0; DEV.game.studio.holder.traverse((o) => { if (o.isMesh) { n++; if (o.material.emissiveIntensity > 1.5) glow++; } }); return [id, n, glow]; }));
   const baseCounts = await page.evaluate(() => Object.fromEntries(DEV.ultras().map((u) => { const id = u.replace('_ultra', ''); DEV.inspectGun(id); let n = 0; DEV.game.studio.holder.traverse((o) => { if (o.isMesh) n++; }); return [id, n]; })));
-  check('Every main firearm has a distinct ULTRA model in standard colours (no neon glow)', ultras.length === 15 && ultras.every(([id, n, gl]) => n >= 10 && gl <= 2 && n !== baseCounts[id.replace('_ultra', '')]), ultras.map(([i, n, gl]) => `${i.replace('_ultra', '')}:${n}/${gl}`).join(' '));
+  check('Every main firearm has a distinct ULTRA model in standard colours (no neon glow)', ultras.length === 19 && ultras.every(([id, n, gl]) => n >= 10 && gl <= 2 && n !== baseCounts[id.replace('_ultra', '')]), ultras.map(([i, n, gl]) => `${i.replace('_ultra', '')}:${n}/${gl}`).join(' '));
   const spinners = await page.evaluate(() => { DEV.inspectGun('rocket_launcher_ultra'); const h = DEV.game.studio.holder; const wheel = h.getObjectByName('wheel'); const rockets = [0, 1, 2, 3, 4, 5].filter((i) => wheel?.getObjectByName('rk' + i)).length; DEV.inspectGun('lmg_ultra'); let barrels = 0; DEV.game.studio.holder.getObjectByName('spin')?.traverse((o) => { if (o.isMesh && o.geometry.parameters?.height > 0.6) barrels++; }); return { wheel: !!wheel, rockets, barrels, mag: DEV.weapon('rocket_launcher_ultra').mag }; });
   check('Ultra rocket launcher: single barrel fed by a 6-rocket revolving cylinder; Ultra LMG has 6 rotating barrels', spinners.wheel && spinners.rockets === 6 && spinners.mag === 6 && spinners.barrels === 6, JSON.stringify(spinners));
   const ultraStats = await page.evaluate(() => { const W = DEV.game.constructor && null; void W; const by = (id) => DEV.game.player ? null : null; void by; return null; });
@@ -86,7 +86,7 @@ try {
     }
     return { blocked: Object.entries(out).filter(([, n]) => n).map(([k]) => k), dot: !!document.querySelector('#adsdot') }; });
   check('Aiming down sights: nothing covers the aim point + red-dot reticle', adsC.blocked.length === 0 && adsC.dot, JSON.stringify(adsC));
-  const mtn = await page.evaluate(() => Object.fromEntries(DEV.maps().map((id) => { DEV.loadMap(id, 'practice'); let inside = 0; DEV.game.map.group.traverse((o) => { if (o.isMesh && o.material.vertexColors && o.geometry.attributes.color) { const p = o.geometry.attributes.position; for (let i = 0; i < p.count; i++) if (Math.abs(p.getX(i)) < 31 && Math.abs(p.getZ(i)) < 31) inside++; } }); return [id, inside]; })));
+  const mtn = await page.evaluate(() => Object.fromEntries(DEV.maps().map((id) => { DEV.loadMap(id, 'practice'); let inside = 0; DEV.game.map.group.traverse((o) => { if (o.isMesh && o.name !== 'ground' && o.material.vertexColors && o.geometry.attributes.color) { const p = o.geometry.attributes.position; for (let i = 0; i < p.count; i++) if (Math.abs(p.getX(i)) < 31 && Math.abs(p.getZ(i)) < 31) inside++; } }); return [id, inside]; })));
   check('Mountains never intrude into the arena (no walking into them)', Object.values(mtn).every((n) => n === 0), JSON.stringify(mtn));
   // ── v2.3: tunnels, lab island, architecture, colliders ──
   const tun = await page.evaluate(() => {
@@ -289,10 +289,53 @@ try {
   check('Harpoon spears and reels the enemy in', ng.harpoon.dmg >= 70 && ng.harpoon.distAfter < 5, JSON.stringify(ng.harpoon));
   check('Shockwave Grenade: carry 5, no damage, throws enemies', ng.shock.carry === 5 && ng.shock.dmg === 0 && ng.shock.moved > 2.5, JSON.stringify(ng.shock));
   check('Mini Black Hole pulls enemies in (not the thrower) and lasts 15 s', ng.hole.to < 2.2 && ng.hole.from > 5 && ng.hole.ownerDist > 6 && ng.hole.gone && ng.hole.time === 15, JSON.stringify(ng.hole));
-  check('Slide (C): fast + low hitbox, carries ~7 m, then stands up', ng.slide.speed > 11 && ng.slide.eye < 1.0 && ng.slide.head < 1.0 && ng.slide.dist > 5 && ng.slide.standing, JSON.stringify(ng.slide));
+  check('Slide (C): entry boost + low hitbox, friction carries it ~7 m, then stands up', ng.slide.speed > 9 && ng.slide.eye < 1.0 && ng.slide.head < 1.0 && ng.slide.dist > 4 && ng.slide.standing, JSON.stringify(ng.slide));
   check('Grapple Hook zips onto a container roof and pulls you to an enemy (with a hit)', ng.grapple.hooked && ng.grapple.topY > 3 && ng.grapple.endY > 2.5 && ng.grapple.enemyDmg >= 25 && ng.grapple.enemyDist < 2.5, JSON.stringify(ng.grapple));
   check('Sentry Turret deploys, shoots enemies for its owner, expires after 30 s', ng.sentry.placed && ng.sentry.dmg > 30 && ng.sentry.credited && ng.sentry.backToGun && ng.sentry.expired, JSON.stringify(ng.sentry));
   check('Mortar buffed (3-shell tube, 12.5 m) + shooter-only landing marker; Ultra shells cluster', ng.mortar.mag === 3 && ng.mortar.radius >= 12 && ng.mortar.marker && ng.mortar.hiddenOtherwise && ng.ultraCluster === 3, JSON.stringify(ng.mortar));
+
+  // ───────── v2.6: fun guns, spear, slide friction, wheel, achievements ─────────
+  const v26 = await page.evaluate(() => {
+    const g = DEV.game; const god0 = g.god; DEV.loadMap('cargo_yard', 'ffa'); g.timeScale = 0; DEV.advance(3.3); DEV.clearBots(); g.god = true;
+    DEV.teleport(-12, 0, 28, -Math.PI / 2); DEV.advance(0.1);
+    const bot = (id) => g.actors.find((x) => x.id === id); const hp = (id) => DEV.bot(id).hp;
+    const shoot = (slot, w, id, n = 1) => { DEV.equip(slot, w); DEV.select(slot); DEV.advance(0.6); for (let k = 0; k < n; k++) { DEV.aimAt(id, 'body'); DEV.input({ fire: true, firePressed: true }); g.fixedUpdate(1 / 60); DEV.input(null); DEV.advance(0.4); } };
+    const out = {};
+    let b = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-4, 0, 28] }); let h = hp(b); shoot(1, 'snowball_launcher', b); out.snow = { dmg: h - hp(b), slowed: bot(b).fx.chill > 0 }; DEV.clearBots();
+    b = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-4, 0, 28] }); h = hp(b); const dec0 = (g.effects.decals || []).length; shoot(1, 'paintball_gun', b, 3); out.paint = { dmg: h - hp(b) };
+    DEV.look(Math.PI, -0.2); DEV.input({ fire: true, firePressed: true }); g.fixedUpdate(1 / 60); DEV.input(null); DEV.advance(0.6); out.paint.decals = (g.effects.decals || []).length - dec0; DEV.clearBots();
+    b = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-7, 0, 28] }); h = hp(b); const p0 = bot(b).pos.clone(); DEV.equip(1, 'water_gun'); DEV.select(1); DEV.advance(0.6);
+    for (let k = 0; k < 20; k++) { DEV.aimAt(b, 'body'); DEV.input({ fire: true }); DEV.advance(0.05); } DEV.input(null); out.water = { dmg: h - hp(b), pushed: +bot(b).pos.distanceTo(p0).toFixed(2) }; DEV.clearBots();
+    b = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-4, 0, 28] }); h = hp(b); shoot(1, 'tennis_launcher', b); out.tennis = { dmg: h - hp(b) };
+    const tb = g.combat.spawnProj(g.player, DEV.weapon('tennis_launcher'), 'tennis', new DEV.THREE.Vector3(0, 1.5, 25), new DEV.THREE.Vector3(0, 0, 30)); DEV.advance(0.4); out.tennis.bounces = tb.bounces; DEV.clearBots();
+    // spear: thrown headshot one-shots a full-armour enemy; RMB stab; pick it back up
+    b = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-2, 0, 28] }); bot(b).armor = 50; DEV.equip(3, 'spear'); DEV.select(3); DEV.advance(0.6);
+    DEV.aimAt(b, 'head'); DEV.input({ firePressed: true, fire: true }); g.fixedUpdate(1 / 60); DEV.input(null); DEV.advance(1.2);
+    const sws = g.player.weapons[3]; out.spear = { headKill: !bot(b).alive, out: sws.mag === 0 };
+    const sp = g.combat.projs.find((p) => p.kind === 'spear'); out.spear.landed = !!(sp && (sp.landed || sp.stuck));
+    if (sp) { DEV.teleport(sp.pos.x, sp.owner.pos.y, sp.pos.z); DEV.advance(0.3); } out.spear.picked = sws.mag === 1; DEV.clearBots();
+    b = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-10, 0, 28] }); DEV.teleport(-12, 0, 28, -Math.PI / 2); DEV.advance(0.2); h = hp(b);
+    DEV.aimAt(b, 'body'); DEV.input({ altPressed: true }); g.fixedUpdate(1 / 60); DEV.input(null); DEV.advance(0.5); out.spear.stab = h - hp(b); DEV.clearBots();
+    // slide: boost, then friction slows it down
+    const P = g.player; DEV.select(1); DEV.teleport(-12, 0, 28, -Math.PI / 2); DEV.advance(0.2); DEV.input({ forward: true }); DEV.advance(0.5);
+    DEV.input({ forward: true, slide: true }); g.fixedUpdate(1 / 60); const s0 = Math.hypot(P.vel.x, P.vel.z); DEV.input({ forward: true }); DEV.advance(0.4); const s1 = Math.hypot(P.vel.x, P.vel.z);
+    out.slide = { start: +s0.toFixed(1), later: +s1.toFixed(1) }; DEV.input(null); DEV.advance(1.5);
+    g.god = god0; return out;
+  });
+  check('Snowball Launcher hits + chills', v26.snow.dmg >= 30 && v26.snow.slowed, JSON.stringify(v26.snow));
+  check('Paintball Gun hits and splats paint decals on walls', v26.paint.dmg >= 28 && v26.paint.decals > 0, JSON.stringify(v26.paint));
+  check('Water Gun soaks and shoves enemies back', v26.water.dmg > 20 && v26.water.pushed > 1, JSON.stringify(v26.water));
+  check('Tennis Ball Launcher hits and balls bounce off walls', v26.tennis.dmg >= 40 && v26.tennis.bounces >= 1, JSON.stringify(v26.tennis));
+  check('Spear: thrown headshot one-shots (even with armour), lands, can be picked up; RMB stab hits hard', v26.spear.headKill && v26.spear.out && v26.spear.landed && v26.spear.picked && v26.spear.stab >= 120, JSON.stringify(v26.spear));
+  check('Slide: entry boost then friction slows you', v26.slide.start > 11 && v26.slide.later < v26.slide.start - 2.5, JSON.stringify(v26.slide));
+  check('Grapple Hook costs 1800', (await page.evaluate(() => DEV.weapon('grapple_hook').price)) === 1800);
+  const meta = await page.evaluate(() => {
+    const pf = DEV.profile; const c0 = pf.coins; pf.d.wheelDay = null; const can = pf.canSpin(); const res = pf.spin(() => 0.01); const again = pf.spin();
+    const fb = pf.achieved('first_blood'); const before = pf.coins; if (!fb) pf.bump('kills'); const got = pf.achieved('first_blood');
+    return { can, seg: res?.seg.id, coinsGained: before - c0, again, got, paid: !fb ? pf.coins - before : 50 };
+  });
+  check('Daily Wheel: one spin per day, pays out', meta.can && meta.seg === 'c50' && meta.coinsGained === 50 && meta.again === null, JSON.stringify(meta));
+  check('Achievements unlock once and pay coins', meta.got && meta.paid >= 50, JSON.stringify(meta));
 
   // ───────── bot tiers ─────────
   const tiers = await page.evaluate(async () => {

@@ -48,6 +48,22 @@ export class Hud {
   emotional() {
     this.emoT = 1.4; const e = this.el.emo; e.classList.remove('on'); void e.offsetWidth; e.classList.add('on');
   }
+  // achievement unlocked: slides in under the top bar, stacks up to 3
+  achievement(a) {
+    let box = document.getElementById('achbox'); if (!box) { box = document.createElement('div'); box.id = 'achbox'; this.root.appendChild(box); }
+    const el = document.createElement('div'); el.className = 'ach-pop';
+    el.innerHTML = `<span class="ai">${a.icon}</span><div><small>ACHIEVEMENT UNLOCKED</small><b>${esc(a.name)}</b><em>${esc(a.desc)}</em></div><i>+${a.reward} ◉</i>`;
+    box.prepend(el); while (box.children.length > 3) box.lastChild.remove();
+    setTimeout(() => el.classList.add('out'), 4200); setTimeout(() => el.remove(), 4800);
+  }
+  // paintball hit on the local player: a splat on the screen that drips and fades
+  paint(color) {
+    let box = document.getElementById('paintov'); if (!box) { box = document.createElement('div'); box.id = 'paintov'; this.root.appendChild(box); }
+    if (box.children.length > 8) box.firstChild.remove();
+    const el = document.createElement('i'); const hex = '#' + color.toString(16).padStart(6, '0'); const sz = 90 + Math.random() * 120;
+    el.style.cssText = `left:${10 + Math.random() * 75}%;top:${8 + Math.random() * 70}%;width:${sz}px;height:${sz}px;--pc:${hex};transform:translate(-50%,-50%) rotate(${Math.random() * 360}deg)`;
+    box.appendChild(el); setTimeout(() => el.remove(), 2600);
+  }
   toast(msg, kind = '') {
     if (!msg) return; const t = this.el.toast; t.textContent = msg; t.className = 'on ' + kind; this.toastT = 2.2;
   }
@@ -123,7 +139,8 @@ export class Hud {
     if (d) {
       this.el.wname.textContent = d.name + (g.profile?.onTrial(d.id) ? ' · TRIAL' : '');
       let mag = '', res = '';
-      if (d.kind === 'melee') { mag = '∞'; res = d.ability ? (a.fx.scytheCd > 0 ? `RMB ${Math.ceil(a.fx.scytheCd)}s` : 'RMB READY') : d.grapple ? (a.grapple ? 'HOOKED' : a.grappleCd > 0 ? `HOOK ${a.grappleCd.toFixed(1)}s` : 'RMB HOOK') : ''; }
+      if (d.spear) { mag = ws.mag > 0 ? 'READY' : `${Math.max(0, ws.recharge).toFixed(1)}s`; res = ws.mag > 0 ? 'LMB THROW · RMB STAB' : 'GRAB IT OR WAIT'; }
+      else if (d.kind === 'melee') { mag = '∞'; res = d.ability ? (a.fx.scytheCd > 0 ? `RMB ${Math.ceil(a.fx.scytheCd)}s` : 'RMB READY') : d.grapple ? (a.grapple ? 'HOOKED' : a.grappleCd > 0 ? `HOOK ${a.grappleCd.toFixed(1)}s` : 'RMB HOOK') : ''; }
       else if (d.kind === 'throwable') { mag = ws.count; res = ws.cook >= 0 && d.cookable ? `${Math.max(0, d.fuse - ws.cook).toFixed(1)}s` : 'LEFT'; }
       else if (d.kind === 'usable') { mag = ws.usableCd > 0 ? Math.ceil(ws.usableCd) + 's' : 'READY'; res = ''; }
       else if (d.id === 'flamethrower') { mag = Math.ceil(ws.mag); res = `/ ${ws.reserve} FUEL`; }
@@ -148,6 +165,7 @@ export class Hud {
         if (w.def.kind === 'throwable') cnt = '×' + w.count;
         if (w.def.kind === 'usable') cd = w.usableCd / w.def.cooldown;
         if (w.def.id === 'slippers' && w.mag === 0) cd = w.recharge / w.def.cooldown;
+        if (w.def.spear && w.mag === 0) cd = w.recharge / w.def.spear.ret;
         if (w.def.ability && a.fx.scytheCd > 0) cd = a.fx.scytheCd / w.def.ability.cooldown;
         if (w.def.grapple && a.grappleCd > 0) cd = a.grappleCd / w.def.grapple.cooldown;
         if (w.def.id === 'shurikens') cnt = '×' + w.mag;

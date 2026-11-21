@@ -256,6 +256,18 @@ const makers = {
     x.fillStyle = '#333'; for (let i = 0; i < 128; i += 8) for (let j = 0; j < 128; j += 8) if ((i + j) % 16 === 0) x.fillRect(i, j, 6, 6);
     return finish(c, { aniso: 1 });
   },
+  splat() { // paintball splat: white blob + droplets on transparent (tinted by the material colour)
+    const [c, x] = canvas(128); x.clearRect(0, 0, 128, 128); x.fillStyle = '#fff';
+    x.beginPath(); for (let a = 0; a <= 24; a++) { const ang = (a / 24) * Math.PI * 2; const r = 30 + rnd() * 14 + (a % 3 === 0 ? rnd() * 12 : 0); const px = 64 + Math.cos(ang) * r, py = 64 + Math.sin(ang) * r; a ? x.lineTo(px, py) : x.moveTo(px, py); } x.closePath(); x.fill();
+    for (let i = 0; i < 14; i++) { const ang = rnd() * Math.PI * 2, r = 44 + rnd() * 16, s = 2 + rnd() * 5; x.beginPath(); x.arc(64 + Math.cos(ang) * r, 64 + Math.sin(ang) * r, s, 0, Math.PI * 2); x.fill(); }
+    x.globalAlpha = 0.25; x.fillStyle = '#000'; x.beginPath(); x.arc(56, 58, 12, 0, Math.PI * 2); x.fill(); x.globalAlpha = 1;
+    return finish(c, { aniso: 4 });
+  },
+  snowsplat() {
+    const [c, x] = canvas(128); x.clearRect(0, 0, 128, 128);
+    for (let i = 0; i < 40; i++) { const ang = rnd() * Math.PI * 2, r = rnd() * 40, s = 4 + rnd() * 10; x.fillStyle = `rgba(255,255,255,${0.5 + rnd() * 0.5})`; x.beginPath(); x.arc(64 + Math.cos(ang) * r, 64 + Math.sin(ang) * r, s, 0, Math.PI * 2); x.fill(); }
+    return finish(c, { aniso: 4 });
+  },
   wrap() { // katana tsuka wrap (diamond pattern)
     const [c, x] = canvas(128); x.fillStyle = '#121212'; x.fillRect(0, 0, 128, 128);
     x.fillStyle = '#e8e0c8';
@@ -270,10 +282,42 @@ function camo(cols) {
   return finish(c, { aniso: 4 });
 }
 
+// Normal map derived from a texture's luminance (Sobel), so flat procedural surfaces catch light like real
+// brick / concrete / corrugated metal. Same repeat as the colour map it pairs with.
+const nCache = new Map();
+// hand-made height fields where the colour map would give the wrong relief (rust blotches ≠ dents)
+const HEIGHT = {
+  container: (u, v) => { const f = (u * 16) % 1; return (f < 0.5 ? f * 2 : 2 - f * 2) * 0.35 + (v < 0.03 || v > 0.97 ? 0.4 : 0); },   // trapezoid ribs
+  asphalt: (u, v, l) => l * 0.4, concrete: (u, v, l) => l * 0.6, sand: (u, v, l) => l * 0.5,
+};
+export function texNormal(map, strength = 2.2) {
+  const name = map?.userData?.texName; if (!name || !map.image?.getContext) return null;
+  const key = name + ':' + map.repeat.x + ',' + map.repeat.y;
+  if (nCache.has(key)) return nCache.get(key);
+  let base = nCache.get(name);
+  if (!base) {
+    const src = map.image; const w = src.width, h = src.height; const sd = src.getContext('2d').getImageData(0, 0, w, h).data;
+    const L = new Float32Array(w * h); for (let i = 0; i < w * h; i++) L[i] = (sd[i * 4] * 0.3 + sd[i * 4 + 1] * 0.59 + sd[i * 4 + 2] * 0.11) / 255;
+    if (HEIGHT[name]) for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) L[j * w + i] = HEIGHT[name](i / w, j / h, L[j * w + i]);
+    const [c, x] = canvas(w, h); const img = x.createImageData(w, h); const d = img.data;
+    const at = (i, j) => L[((j + h) % h) * w + ((i + w) % w)];
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+      const dx = (at(i + 1, j - 1) + 2 * at(i + 1, j) + at(i + 1, j + 1)) - (at(i - 1, j - 1) + 2 * at(i - 1, j) + at(i - 1, j + 1));
+      const dy = (at(i - 1, j + 1) + 2 * at(i, j + 1) + at(i + 1, j + 1)) - (at(i - 1, j - 1) + 2 * at(i, j - 1) + at(i + 1, j - 1));
+      let nx = -dx * strength, ny = dy * strength, nz = 1; const l = Math.hypot(nx, ny, nz); nx /= l; ny /= l; nz /= l;
+      const k = (j * w + i) * 4; d[k] = (nx * 0.5 + 0.5) * 255; d[k + 1] = (ny * 0.5 + 0.5) * 255; d[k + 2] = (nz * 0.5 + 0.5) * 255; d[k + 3] = 255;
+    }
+    x.putImageData(img, 0, 0); base = finish(c, { srgb: false }); nCache.set(name, base);
+  }
+  const t = base.clone(); t.repeat.copy(map.repeat); t.offset.copy(map.offset); t.needsUpdate = true; nCache.set(key, t);
+  return t;
+}
+
 export function tex(name, repeat) {
   const key = name + ':' + (repeat ?? '');
   if (!cache.has(key)) {
     const base = cache.get(name) || makers[name]();
+    base.userData.texName = name;
     cache.set(name, base);
     if (repeat == null) { cache.set(key, base); }
     else { const t = base.clone(); t.repeat.set(repeat[0] ?? repeat, repeat[1] ?? repeat); t.needsUpdate = true; cache.set(key, t); }

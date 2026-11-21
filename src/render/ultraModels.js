@@ -265,7 +265,44 @@ function harpoon_gun_ultra(m, opt) {
   return g;
 }
 
+function snowball_launcher_ultra(m, opt) {
+  const g = base('snowball_launcher', m, opt);
+  const snow = std({ color: 0xf6f9fc, roughness: 0.9 });
+  P(g, cylZ(0.064, 0.058, 0.12, 24, true), m.darksteel, 0, 0.04, -0.6);                     // avalanche bell
+  for (let i = 0; i < 4; i++) P(g, torus(0.06, 0.008, 22), NEON(), 0, 0.04, -0.24 - i * 0.1);
+  const big = new THREE.Group(); big.position.set(0, 0.2, -0.12); g.add(big);              // overflowing snow pile on the hopper
+  for (let i = 0; i < 5; i++) P(big, sphere(0.034, 12, 10), snow, ((i % 3) - 1) * 0.035, Math.floor(i / 3) * 0.03, 0);
+  P(g, cylZ(0.022, 0.022, 0.26, 14), m.gunmetal, 0, -0.04, -0.3);                          // coolant line
+  emblem(g, 0.04, 0.0);
+  return g;
+}
+function paintball_gun_ultra(m, opt) {
+  const g = base('paintball_gun', m, opt);
+  const h = g.getObjectByName('mag'); const h2 = h.clone(); h2.name = 'mag2'; h.position.x = -0.05; h2.position.x = 0.05; h.rotation.z = 0.25; h2.rotation.z = -0.25; g.add(h2);   // twin hoppers
+  P(g, cylZ(0.022, 0.022, 0.12, 18), NEON(), 0, 0.055, -0.58);
+  for (const sx of [-1, 1]) P(g, box(0.004, 0.006, 0.3), PINK(), sx * 0.02, 0.04, -0.06);
+  emblem(g, 0.05, -0.05);
+  return g;
+}
+function water_gun_ultra(m, opt) {
+  const g = base('water_gun', m, opt);
+  const water = std({ color: 0x3aa8ff, metalness: 0.05, roughness: 0.05, transparent: true, opacity: 0.6 });
+  for (const sx of [-1, 1]) { P(g, cylZ(0.016, 0.012, 0.18, 14), m.gunmetal, sx * 0.04, 0.0, -0.42); P(g, torus(0.016, 0.004, 14), NEON(), sx * 0.04, 0.0, -0.51); }
+  for (const sx of [-1, 1]) { P(g, cylY(0.04, 0.04, 0.2, 18), water, sx * 0.07, 0.12, 0.12); P(g, cylY(0.043, 0.043, 0.02, 18), PINK(), sx * 0.07, 0.22, 0.12); }   // twin backpack-style canisters
+  emblem(g, 0.09, 0.08);
+  return g;
+}
+function tennis_launcher_ultra(m, opt) {
+  const g = base('tennis_launcher', m, opt);
+  const felt = std({ color: 0xd8f040, roughness: 0.95 });
+  for (const sx of [-1, 1]) { P(g, cylZ(0.03, 0.03, 0.3, 18, true), m.gunmetal, sx * 0.075, 0.03, -0.38); P(g, sphere(0.024, 12, 10), felt, sx * 0.075, 0.03, -0.5); P(g, torus(0.032, 0.005, 18), NEON(), sx * 0.075, 0.03, -0.53); }
+  P(g, rbox(0.2, 0.02, 0.06, 0.006), m.darksteel, 0, 0.03, -0.24);
+  emblem(g, 0.06, 0.02);
+  return g;
+}
+
 export const ULTRA_BUILDERS = {
+  snowball_launcher_ultra, paintball_gun_ultra, water_gun_ultra, tennis_launcher_ultra,
   assault_rifle_ultra, ak47_ultra, dmr_ultra, rocket_launcher_ultra, burst_rifle_ultra, lmg_ultra,
   heavy_sniper_ultra, flamethrower_ultra, grenade_launcher_ultra, mortar_ultra,
   volt_rail_ultra, arc_caster_ultra, ricochet_disc_ultra, cryo_sprayer_ultra, harpoon_gun_ultra,
