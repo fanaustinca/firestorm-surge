@@ -80,7 +80,8 @@ export class UI {
     }).join('');
     const can = profile.canSpin();
     this.root.innerHTML = `<div class="modal wheel"><header><h2>🎡 DAILY WHEEL</h2><div class="meta">${this.coinsHtml()}<button class="btn ghost" id="wh-close">CLOSE ✕</button></div></header>
-      <p class="status">${can ? 'One free spin every day. Coins, free weapon trials, even a permanent shop skin!' : 'Already spun today — come back tomorrow for another free spin.'}</p>
+      <p class="status">${can ? 'One free spin every day. Coins, free weapon trials, even a permanent shop skin!' : `Already spun today — next free spin in ${(() => { const t = new Date(); const m = Math.ceil((Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate() + 1) - t) / 60000); return `${(m / 60) | 0}h ${m % 60}m`; })()}. Spin daily to build your streak!`}</p>
+      <div class="streak">${[1, 2, 3, 4, 5, 6, 7].map((d) => `<i class="${d < profile.nextStreak() || (!can && d === profile.nextStreak()) ? 'on' : d === profile.nextStreak() ? 'next' : ''}">D${d}<small>+${(d - 1) * 25}</small></i>`).join('')}</div>
       <div class="wheel-wrap"><div class="pin"></div><svg id="wh-svg" viewBox="0 0 380 380"><circle cx="${C}" cy="${C}" r="${R + 8}" fill="#1a1e24" stroke="var(--gold)" stroke-width="4"/>${slices}<circle cx="${C}" cy="${C}" r="26" fill="#1a1e24" stroke="var(--gold)" stroke-width="4"/><text x="${C}" y="${C + 1}" text-anchor="middle" dominant-baseline="middle" fill="var(--gold)" font-size="22">◉</text></svg></div>
       <div class="wheel-res" id="wh-res"></div>
       <button class="btn big primary" id="wh-spin" ${can ? '' : 'disabled'}>${can ? 'SPIN!' : 'COME BACK TOMORROW'}</button></div>`;
@@ -100,7 +101,8 @@ export class UI {
   openAchievements() {
     this.view = 'achs';
     const got = ACHIEVEMENTS.filter((a) => profile.achieved(a.id)).length;
-    const cards = ACHIEVEMENTS.map((a) => { const done = profile.achieved(a.id); const v = Math.min(a.goal, profile.life(a.stat)); return `<div class="ach ${done ? 'done' : ''}"><span class="ai">${a.icon}</span><b>${esc(a.name)}</b><small>${esc(a.desc)} · ${done ? '✓ +' + a.reward + ' ◉' : '◉ ' + a.reward}</small><div class="qbar"><i style="width:${(v / a.goal) * 100}%"></i></div><small>${v.toLocaleString()} / ${a.goal.toLocaleString()}</small></div>`; }).join('');
+    const prog = (a) => (profile.achieved(a.id) ? 2 : Math.min(1, profile.life(a.stat) / a.goal));
+    const cards = [...ACHIEVEMENTS].sort((a, b) => (prog(a) === 2) - (prog(b) === 2) || prog(b) - prog(a)).map((a) => { const done = profile.achieved(a.id); const v = Math.min(a.goal, profile.life(a.stat)); return `<div class="ach ${done ? 'done' : ''}"><span class="ai">${a.icon}</span><b>${esc(a.name)}</b><small>${esc(a.desc)} · ${done ? '✓ +' + a.reward + ' ◉' : '◉ ' + a.reward}</small><div class="qbar"><i style="width:${(v / a.goal) * 100}%"></i></div><small>${v.toLocaleString()} / ${a.goal.toLocaleString()}</small></div>`; }).join('');
     this.root.innerHTML = `<div class="modal achs"><header><h2>🏆 ACHIEVEMENTS</h2><div class="meta">${this.coinsHtml()}<button class="btn ghost" id="ac-close">CLOSE ✕</button></div></header>
       <p class="ach-sum">${got} / ${ACHIEVEMENTS.length} unlocked · each one pays coins the moment you earn it</p><div class="ach-grid">${cards}</div></div>`;
     this.root.style.display = 'block';
@@ -287,13 +289,14 @@ export class UI {
       <label>Volume <input id="vol" type="range" min="0" max="1" step="0.05" value="${s.volume}"><output>${s.volume}</output></label>
       <label>Field of view <input id="fov" type="range" min="65" max="100" step="1" value="${s.fov}"><output>${s.fov}</output></label>
       <label>Holiday reskins <select id="hol"><option value="auto">Auto (by month)</option><option value="on">Always on</option><option value="off">Off</option></select></label>
+      <label>Graphics quality <select id="gq"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low (fast)</option></select></label>
       <button class="btn primary" id="done">DONE</button></div>`;
-    this.root.style.display = 'block'; $('#hol').value = s.holiday;
+    this.root.style.display = 'block'; $('#hol').value = s.holiday; $('#gq').value = s.quality || 'high';
     this.root.querySelectorAll('input[type=range]').forEach((i) => i.oninput = () => { i.nextElementSibling.textContent = i.value; });
     $('#done').onclick = () => {
-      s.sens = +$('#sens').value; s.volume = +$('#vol').value; s.fov = +$('#fov').value; s.holiday = $('#hol').value;
+      s.sens = +$('#sens').value; s.volume = +$('#vol').value; s.fov = +$('#fov').value; s.holiday = $('#hol').value; s.quality = $('#gq').value;
       profile.d.name = ($('#nm').value.trim() || profile.d.name).slice(0, 16); this.g.playerName = profile.d.name;
-      sfx.setVolume(s.volume); this.g.baseFov = s.fov; setHolidayMode(s.holiday); profile.save();
+      sfx.setVolume(s.volume); this.g.baseFov = s.fov; setHolidayMode(s.holiday); this.g.applyQuality(s.quality); profile.save();
       if (fromPause) this.pause(true); else this.showMenu();
     };
   }

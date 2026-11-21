@@ -72,6 +72,7 @@ export const WHEEL = [
 export const WIN_POINTS = { '1v1': 60, '2v2': 70, ffa: 90, red_vs_blue: 50 };
 
 const today = () => new Date().toISOString().slice(0, 10);
+const yesterday = () => new Date(Date.now() - 864e5).toISOString().slice(0, 10);
 const month = () => new Date().toISOString().slice(0, 7);
 function seeded(str) { let h = 2166136261; for (const c of str) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return () => { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; return ((h >>> 0) % 100000) / 100000; }; }
 
@@ -120,6 +121,9 @@ class Profile {
 
   // ─── daily wheel ───
   canSpin() { return this.d.wheelDay !== today(); }
+  // consecutive-day streak: the spin you're about to take (1..7), bonus coins on top of any prize
+  nextStreak() { return this.d.wheelDay === yesterday() ? Math.min(7, (this.d.wheelStreak || 0) + 1) : this.d.wheelDay === today() ? (this.d.wheelStreak || 1) : 1; }
+  streakBonus(n = this.nextStreak()) { return (n - 1) * 25; }
   spin(rand = Math.random) {
     if (!this.canSpin()) return null;
     const total = WHEEL.reduce((s, x) => s + x.w, 0); let r = rand() * total, idx = 0;
@@ -134,6 +138,9 @@ class Profile {
       if (locked.length) { const w = locked[Math.floor(rand() * locked.length)]; this.grantTrial(w.id); this.d.loadout[w.slot] = w.id; res.trial = w.id; res.text = `${w.name} — free for your next match (equipped)!`; }
       else { this.d.coins += 200; res.text = 'You own everything — ◉ 200 instead!'; }
     } else { this.d.coins += seg.coins; res.text = `+◉ ${seg.coins}`; }
+    const streak = this.nextStreak(), bonus = this.streakBonus(streak);
+    this.d.wheelStreak = streak; res.streak = streak; res.bonus = bonus;
+    if (bonus) { this.d.coins += bonus; res.text += ` · Day ${streak} streak +◉ ${bonus}`; }
     this.d.wheelDay = today(); this.save();
     this.bump('spins'); this.bump('coinPeak', this.d.coins);
     return res;

@@ -23,14 +23,18 @@ import { randomNode, findPath } from './bots.js';
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const STEP = 1 / 60;
+export const QUALITY = {
+  high: { label: 'High', dpr: 2, shadow: THREE.PCFSoftShadowMap, shadowRes: 2048, detail: 1 },
+  medium: { label: 'Medium', dpr: 1.5, shadow: THREE.PCFShadowMap, shadowRes: 2048, detail: 0.55 },
+  low: { label: 'Low (fast)', dpr: 1, shadow: THREE.PCFShadowMap, shadowRes: 1024, detail: 0 },
+};
 const _a = V(), _b = V();
 
 export class Game {
   constructor(canvas) {
     this.canvas = canvas; this.profile = profile;
     const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    r.setPixelRatio(Math.min(devicePixelRatio, 2)); r.setSize(innerWidth, innerHeight);
-    r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFSoftShadowMap;
+    r.setSize(innerWidth, innerHeight); r.shadowMap.enabled = true;
     r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.0; r.outputColorSpace = THREE.SRGBColorSpace;
     r.autoClear = false;
     this.scene = new THREE.Scene();
@@ -42,6 +46,7 @@ export class Game {
     const sc = this.sun.shadow.camera; sc.left = sc.bottom = -48; sc.right = sc.top = 48; sc.near = 1; sc.far = 220;
     this.sun.shadow.mapSize.set(2048, 2048); this.sun.shadow.bias = -0.0004; this.sun.shadow.normalBias = 0.03;
     this.scene.add(this.sun); this.scene.add(this.sun.target);
+    this.applyQuality(profile.d.settings.quality);
     this.hemi = new THREE.HemisphereLight(0xbfd8ff, 0x5a5048, 1); this.scene.add(this.hemi);
     this.sky = new THREE.Mesh(new THREE.SphereGeometry(300, 32, 16), new THREE.MeshBasicMaterial({ map: tex('sky'), side: THREE.BackSide, fog: false, depthWrite: false }));
     this.scene.add(this.sky);
@@ -72,10 +77,18 @@ export class Game {
     if (this.studio) { this.studio.cam.aspect = w / h; this.studio.cam.updateProjectionMatrix(); }
   }
 
+  // graphics preset: resolution, shadow filtering / resolution, ground-clutter density
+  applyQuality(q = 'high') {
+    const Q = QUALITY[q] || QUALITY.high; const r = this.renderer; this.quality = Q;
+    r.setPixelRatio(Math.min(devicePixelRatio, Q.dpr)); r.setSize(innerWidth, innerHeight);
+    if (r.shadowMap.type !== Q.shadow) { r.shadowMap.type = Q.shadow; this.scene.traverse((o) => { if (o.material) for (const m of [].concat(o.material)) m.needsUpdate = true; }); }
+    if (this.sun.shadow.mapSize.x !== Q.shadowRes) { this.sun.shadow.mapSize.set(Q.shadowRes, Q.shadowRes); this.sun.shadow.map?.dispose(); this.sun.shadow.map = null; }
+  }
+
   // ═════════════════ map / match lifecycle ═════════════════
   loadMap(id) {
     if (this.map) { this.scene.remove(this.map.group); this.map.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
-    this.map = buildMap(id); this.scene.add(this.map.group);
+    this.map = buildMap(id, { detail: this.quality?.detail ?? 1 }); this.scene.add(this.map.group);
     const e = this.map.env;
     this.sun.position.set(...e.sun).normalize().multiplyScalar(90); this.sun.color.set(e.sunColor); this.sun.intensity = e.sunI;
     this.hemi.color.set(e.hemi[0]); this.hemi.groundColor.set(e.hemi[1]); this.hemi.intensity = e.hemi[2];

@@ -336,6 +336,17 @@ try {
   });
   check('Daily Wheel: one spin per day, pays out', meta.can && meta.seg === 'c50' && meta.coinsGained === 50 && meta.again === null, JSON.stringify(meta));
   check('Achievements unlock once and pay coins', meta.got && meta.paid >= 50, JSON.stringify(meta));
+  const extra = await page.evaluate(() => {
+    const pf = DEV.profile; const y = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+    pf.d.wheelDay = y; pf.d.wheelStreak = 3; const c0 = pf.coins; const res = pf.spin(() => 0.01); const streak = { n: res.streak, bonus: res.bonus, gained: pf.coins - c0 };
+    pf.d.wheelDay = '2000-01-01'; pf.d.wheelStreak = 6; const reset = pf.nextStreak();
+    const g = DEV.game; const count = () => { let n = 0; g.map.group.traverse((o) => { if (o.isInstancedMesh) n += o.count; }); return n; };
+    g.applyQuality('low'); DEV.loadMap('jungle_temple', 'ffa'); const low = { n: count(), pr: g.renderer.getPixelRatio(), sh: g.sun.shadow.mapSize.x };
+    g.applyQuality('high'); DEV.loadMap('jungle_temple', 'ffa'); const high = { n: count(), sh: g.sun.shadow.mapSize.x };
+    return { streak, reset, low, high };
+  });
+  check('Daily Wheel streak: consecutive days add +25/day bonus, missed day resets', extra.streak.n === 4 && extra.streak.bonus === 75 && extra.streak.gained === 125 && extra.reset === 1, JSON.stringify(extra));
+  check('Graphics quality: Low drops clutter/shadow res/pixel ratio, High restores', extra.low.pr === 1 && extra.low.sh === 1024 && extra.high.sh === 2048 && extra.high.n > extra.low.n + 2000, JSON.stringify(extra));
 
   // ───────── bot tiers ─────────
   const tiers = await page.evaluate(async () => {

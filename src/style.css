@@ -327,3 +327,10 @@ footer .ver { float: right; }
 .ach .qbar { height: 4px; background: #222830; border-radius: 2px; overflow: hidden; } .ach .qbar i { display: block; height: 100%; background: linear-gradient(90deg, var(--fire), var(--fire2)); }
 .ach.done { border-color: var(--gold); background: linear-gradient(135deg, rgba(255, 200, 60, .14), var(--panel)); } .ach.done .ai { filter: none; } .ach.done .qbar i { background: var(--gold); }
 .ach-sum { color: var(--dim); margin: -4px 0 10px; }
+
+.modal.wheel .streak { display: flex; gap: 6px; justify-content: center; margin: 4px 0 10px; }
+.modal.wheel .streak i { font-style: normal; font-weight: 900; font-size: 12px; padding: 4px 8px; border-radius: 6px; background: #1a1e24; color: #6a7380; border: 1px solid #2a3038; display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
+.modal.wheel .streak i small { font-size: 10px; font-weight: 700; }
+.modal.wheel .streak i.on { background: var(--gold); color: #1a1408; border-color: var(--gold); }
+.modal.wheel .streak i.next { border-color: var(--gold); color: var(--gold); animation: streakPulse 1.2s ease-in-out infinite alternate; }
+@keyframes streakPulse { to { box-shadow: 0 0 12px var(--gold); } }

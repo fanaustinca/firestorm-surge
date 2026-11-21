@@ -873,7 +873,7 @@ function refinery() {
 
 const BUILD = { cargo_yard: cargoYard, desert_outpost: desertOutpost, abandoned_city: abandonedCity, underground_lab: undergroundLab, frostbite, jungle_temple: jungleTemple, neon_market: neonMarket, refinery };
 
-export function buildMap(id, { nav: withNav = true } = {}) {
+export function buildMap(id, { nav: withNav = true, detail = 1 } = {}) {
   const { b, env, lights = [] } = BUILD[id]();
   for (const l of lights) b.group.add(l);
   if (env.terrain) {
@@ -885,7 +885,7 @@ export function buildMap(id, { nav: withNav = true } = {}) {
   if (b.world.pits && b.groundMesh) cutGround(b.groundMesh.geometry, b.world);
   if (env.mountains) mountainRing(b.group, { bounds: b.world.bounds ?? 30, ...env.mountains });
   if (b.snowCaps) snowCaps(b);
-  polish(id, b, env);
+  polish(id, b, env, detail);
   const nav = withNav ? buildNav(b.world) : null;
   return { id, group: b.group, world: b.world, spawns: b.spawns, nav, env, info: MAPS[id] };
 }
@@ -902,7 +902,7 @@ const DETAIL = {
   refinery: { weeds: 520, pebbles: 600, debris: 200, stains: 60, grass: [0x5f7030, 0x7a7a3a] },
 };
 const NO_RELIEF = new Set(['hazard', 'vines', 'sky', 'soft', 'smokepuff', 'splat', 'snowsplat', 'wrap', 'grip']);
-function polish(id, b, env) {
+function polish(id, b, env, detail = 1) {
   // 1) relief: every textured opaque map material gets a matching normal map
   const seen = new Set();
   b.group.traverse((o) => {
@@ -912,7 +912,8 @@ function polish(id, b, env) {
       seen.add(m); const n = texNormal(m.map); if (n) { m.normalMap = n; m.normalScale = new THREE.Vector2(0.7, 0.7); m.needsUpdate = true; }
     }
   });
-  const cfg = DETAIL[id]; if (!cfg) return;
+  if (!DETAIL[id] || detail <= 0) return;
+  const cfg = {}; for (const [k, v] of Object.entries(DETAIL[id])) cfg[k] = typeof v === 'number' ? Math.round(v * detail) : v;
   const w = b.world; const r = rng(id.length * 131 + 7);
   const ground = (x, z) => (w.terrain ? w.terrain.at(x, z) : 0);
   // 2) large-scale colour variation on the ground so the tiling disappears
