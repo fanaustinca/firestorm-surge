@@ -12,17 +12,27 @@ import { buildSoldier, poseSoldier, attachWeapon, buildItem, findMarker, teamCol
 import { hookHead } from '../render/gearModels.js';
 import { tex } from '../render/textures.js';
 import { makePlate, drawPlate } from '../render/nameplate.js';
-import { Input } from '../core/input.js';
+import { Input, keyName } from '../core/input.js';
 import { sfx } from '../core/audio.js';
 import { Hud } from '../ui/hud.js';
 import { Net } from '../net/net.js';
 import { profile } from '../meta/profile.js';
 import { gameplay } from '../meta/ads.js';
-import { WEAPON_BY_ID, BASE_HP, isExplosive, ULTRA_OF, baseId } from '../data/weapons.js';
+import { WEAPON_BY_ID, BASE_HP, MAX_ARMOR, isExplosive, ULTRA_OF, baseId } from '../data/weapons.js';
 import { randomNode, findPath } from './bots.js';
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const STEP = 1 / 60;
+// out-of-combat regeneration: after REGEN.delay s without taking damage, heal REGEN.rate HP/s
+export const REGEN = { delay: 5, rate: 6 };
+// killstreak rewards: each kill in a streak heals (best tier reached so far); named tiers are announced
+export const STREAKS = [
+  { n: 2, name: 'DOUBLE TROUBLE', hp: 25 },
+  { n: 3, name: 'KILLING SPREE', hp: 50, armor: 25 },
+  { n: 5, name: 'RAMPAGE', hp: 999, armor: 50 },
+  { n: 7, name: 'UNSTOPPABLE', hp: 999, armor: 50 },
+  { n: 10, name: 'MAIN CHARACTER', hp: 999, armor: 50 },
+];
 export const QUALITY = {
   high: { label: 'High', dpr: 2, shadow: THREE.PCFSoftShadowMap, shadowRes: 2048, detail: 1 },
   medium: { label: 'Medium', dpr: 1.5, shadow: THREE.PCFShadowMap, shadowRes: 2048, detail: 0.55 },
@@ -50,7 +60,7 @@ export class Game {
     this.hemi = new THREE.HemisphereLight(0xbfd8ff, 0x5a5048, 1); this.scene.add(this.hemi);
     this.sky = new THREE.Mesh(new THREE.SphereGeometry(300, 32, 16), new THREE.MeshBasicMaterial({ map: tex('sky'), side: THREE.BackSide, fog: false, depthWrite: false }));
     this.scene.add(this.sky);
-    this.input = new Input(canvas);
+    this.input = new Input(canvas); this.input.setBinds(profile.d.settings.keys || {});
     this.effects = new Effects(this.scene, this.camera);
     this.combat = new Combat(this);
     this.vm = new ViewModel(r); this.vm.setEnv(this.envTex);
@@ -202,6 +212,7 @@ export class Game {
     const atk = info.attacker;
     if (!this.owns(t)) {
       if (atk && this.owns(atk)) {
+        t.aw.taken += amount;
         this.net.event({ t: 'hit', target: t.id, amount, head: !!info.head, weapon: info.weapon, attacker: atk.id, explosive: !!info.explosive, fire: !!info.fire, emotional: !!info.emotional, melee: !!info.melee, paint: info.paint || 0, pos: info.pos?.toArray?.() });
         if (atk === this.player) { this.hud.hitmarker(info.head, false); sfx.hit(info.head); }
         if (info.emotional) this.emotionalFx(t, atk);
@@ -216,7 +227,7 @@ export class Game {
     if (t.spawnProtect > 0 && atk !== t) return;
     if (t === this.player && this.god) return;
     if ((info.explosive || info.fire) && t.mods.blast) amount *= 1 - t.mods.blast;
-    const total = amount;
+    const total = amount; t.aw.taken += amount;
     const absorbed = Math.min(t.armor, amount); t.armor -= absorbed; amount -= absorbed; t.hp -= amount;
     if (atk && atk !== t) { t.lastAttacker = atk; atk.stats.damage += total; if (info.head) atk.stats.headshots++; }
     t.lastHurt = this.time;
@@ -241,9 +252,9 @@ export class Game {
   kill(t, info) {
     if (!t.alive) return;
     const killer = info.attacker;
-    t.alive = false; t.hp = 0; t.stats.deaths++; t.deathT = 0; t.fx.burn = null; t.fx.bleed = []; t.thermal.on = false;
+    t.alive = false; t.hp = 0; t.stats.deaths++; t.deathT = 0; t.fx.burn = null; t.fx.bleed = []; t.thermal.on = false; t.streak = 0;
     if (killer && killer !== t) {
-      killer.stats.kills++;
+      killer.stats.kills++; if (!t.isTarget) this.addStreak(killer);
       if (info.melee) killer.stats.meleeKills++;
       if (info.explosive || isExplosive(WEAPON_BY_ID[info.weapon] || {})) killer.stats.explosiveKills++;
     }
@@ -264,6 +275,31 @@ export class Game {
       }
     }
     if (this.owns(t) && this.net.connected) this.net.event({ t: 'kill', victim: t.id, killer: killer?.id, weapon: info.weapon, head: !!info.head, melee: !!info.melee, explosive: !!info.explosive });
+  }
+  // killstreak: count for everyone (MVP awards), but only the killer's owner applies the heal
+  addStreak(k) {
+    const n = ++k.streak; k.stats.bestStreak = Math.max(k.stats.bestStreak, n);
+    if (this.match?.mode.practice) return;
+    const tier = [...STREAKS].reverse().find((x) => n >= x.n); if (!tier) return;
+    const named = STREAKS.find((x) => x.n === n);
+    if (this.owns(k) && k.alive) {
+      const hp0 = k.hp, ar0 = k.armor;
+      k.hp = Math.min(BASE_HP, k.hp + tier.hp); if (tier.armor) k.armor = Math.min(MAX_ARMOR, k.armor + tier.armor);
+      const gained = Math.round(k.hp - hp0), armor = Math.round(k.armor - ar0);
+      if (k === this.player) { this.hud.streak(n, named?.name, gained, armor); sfx.heal(); this.ach('bestStreak', n); }
+    }
+    if (named && n >= 5 && k !== this.player) this.hud.toast(`${k.name} is on a ${named.name}! (${n} kills)`, k.team === this.player?.team && this.match?.mode.teams ? 'gold' : 'warn');
+  }
+  // per-tick counters for the end-of-match awards (works for remote actors too: uses their interpolated position)
+  trackAwards(a, dt) {
+    const w = a.aw; w.time = (w.time || 0) + dt; if (!a.alive || a.isTarget) { w.lx = null; return; }
+    if (w.lx == null) { w.lx = a.pos.x; w.lz = a.pos.z; w.ly = a.pos.y; w.lyaw = a.yaw; return; }
+    const d = Math.hypot(a.pos.x - w.lx, a.pos.z - w.lz); const turned = Math.abs(a.yaw - w.lyaw) > 0.003;
+    if (d < 6 * dt + 0.5) w.dist += d;   // ignore teleports / respawns
+    if (d < 0.01 && !turned && !(this.time - (a.lastShotT ?? -9) < 0.5)) { w.still += dt; if (w.still > 2) w.afk += dt; } else w.still = 0;
+    if ((a === this.player || this.owns(a)) ? a.slideT > 0 : a.netLow) w.slide += dt;
+    if (a.pos.y - w.ly > 0.02 || (this.owns(a) && !a.onGround)) w.air += dt;
+    w.lx = a.pos.x; w.lz = a.pos.z; w.ly = a.pos.y; w.lyaw = a.yaw;
   }
   // Kill bounty: paid immediately and shown in the ELIMINATED banner. Throwables (mine, grenade, molotov…) pay extra.
   awardKill(victim, info) {
@@ -317,6 +353,8 @@ export class Game {
     if (fx.flash > 0) fx.flash -= dt;
     if (fx.scythe > 0) fx.scythe -= dt;
     if (fx.adrenaline > 0) { fx.adrenaline -= dt; if (a.alive) a.hp = Math.min(BASE_HP, a.hp + 10 * dt); }
+    a.regen = a.alive && !a.isTarget && a.hp < BASE_HP && this.time - a.lastHurt > REGEN.delay && !fx.burn && !fx.bleed.length;
+    if (a.regen) a.hp = Math.min(BASE_HP, a.hp + REGEN.rate * dt);
     if (fx.burn && a.alive) { fx.burn.t -= dt; fx.burn.acc += fx.burn.dps * dt; if (fx.burn.acc >= 3) { const dmg = fx.burn.acc; fx.burn.acc = 0; this.damage(a, dmg, { attacker: fx.burn.owner, weapon: 'flamethrower', fire: true, explosive: true }); } if (fx.burn && fx.burn.t <= 0) fx.burn = null; if (fx.burn && Math.random() < 0.5) this.effects.flame(a.chest(V()).add(_a.set((Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.8, (Math.random() - 0.5) * 0.5)), V().set(0, 1.5, 0)); }
     for (let i = fx.bleed.length - 1; i >= 0; i--) { const b = fx.bleed[i]; if (!b) continue; b.t -= dt; b.acc = (b.acc || 0) + b.dps * dt; if (b.acc >= 2.5 && a.alive) { const dmg = b.acc; b.acc = 0; this.damage(a, dmg, { attacker: b.owner, weapon: 'crossbow' }); } if (b.t <= 0 && fx.bleed[i] === b) fx.bleed.splice(i, 1); }
     // thermal battery: 8 s on, recharges fully in 6 s
@@ -397,7 +435,7 @@ export class Game {
       case 'rope': { const a = A(e.a); if (!a || this.owns(a)) return; a.netRope = e.to ? { to: new THREE.Vector3(...e.to), actor: e.act ? A(e.act) : null, t: 0, fly: e.fly || 0.1, life: 2.6 } : null; break; }
       case 'w:barricade_down': { const b = this.combat.barricades.find((x) => x.id === e.id); if (b) this.combat.destroyBarricade(b); break; }
       case 'hit': { const t = A(e.target); if (t && this.owns(t)) this.applyDamage(t, e.amount, { attacker: A(e.attacker), weapon: e.weapon, head: e.head, explosive: e.explosive, fire: e.fire, emotional: e.emotional, melee: e.melee, paint: e.paint, pos: e.pos }); break; }
-      case 'kill': { const t = A(e.victim); if (!t || this.owns(t)) return; if (t.alive) { t.alive = false; t.deathT = 0; t.stats.deaths++; const k = A(e.killer); if (k && k !== t) { k.stats.kills++; } this.match.onKill(t, k); this.hud.killfeed(k, t, e.weapon, e.head); if (k === this.player) { sfx.kill(); this.hud.hitmarker(e.head, true); profile.addWeaponKill(baseId(e.weapon)); if (e.melee) k.stats.meleeKills++; if (e.explosive) k.stats.explosiveKills++; this.awardKill(t, { weapon: e.weapon, head: e.head, melee: e.melee, explosive: e.explosive }); } } break; }
+      case 'kill': { const t = A(e.victim); if (!t || this.owns(t)) return; if (t.alive) { t.alive = false; t.deathT = 0; t.stats.deaths++; t.streak = 0; const k = A(e.killer); if (k && k !== t) { k.stats.kills++; this.addStreak(k); } this.match.onKill(t, k); this.hud.killfeed(k, t, e.weapon, e.head); if (k === this.player) { sfx.kill(); this.hud.hitmarker(e.head, true); profile.addWeaponKill(baseId(e.weapon)); if (e.melee) k.stats.meleeKills++; if (e.explosive) k.stats.explosiveKills++; this.awardKill(t, { weapon: e.weapon, head: e.head, melee: e.melee, explosive: e.explosive }); } } break; }
       case 'blind': { const t = A(e.target); if (t && this.owns(t)) this.blind(t, e.time); break; }
       case 'stun': { const t = A(e.target); if (t && this.owns(t)) this.stun(t, e.time); break; }
       case 'spawn': { const a = A(e.id); if (a && !this.owns(a)) { a.alive = true; a.hp = BASE_HP; a.pos.set(...e.pos); a.net = { pos: a.pos.clone(), yaw: a.yaw, pitch: 0, t: this.time }; } break; }
@@ -412,13 +450,16 @@ export class Game {
       return;
     }
     const p = this.player; if (!p) return;
-    if (code.startsWith('Digit')) { const s = +code.slice(5); if (s >= 1 && s <= 5 && p.alive) { if (p.switchSlot(s)) sfx.click(); } }
-    if ((code === 'KeyF' || code === 'KeyV') && p.alive) this.toggleThermal();
-    if (code === 'KeyB' || code === 'KeyM') this.ui?.openLoadout(true);
+    const acts = this.input.actions(code);
+    for (const a of acts) {
+      if (a.startsWith('slot')) { const s = +a.slice(4); if (p.alive && p.switchSlot(s)) sfx.click(); }
+      if (a === 'thermal' && p.alive) this.toggleThermal();
+      if (a === 'loadout') this.ui?.openLoadout(true);
+    }
   }
   toggleThermal() {
     const p = this.player;
-    if (p.loadout[6] !== 'thermal_goggles') { this.hud.toast(p.loadout[6] ? 'Equip Thermal Goggles in Slot 6 to use F/V' : 'Slot 6 locked — unlock it in the Loadout (B)', 'warn'); return false; }
+    if (p.loadout[6] !== 'thermal_goggles') { this.hud.toast(p.loadout[6] ? `Equip Thermal Goggles in Slot 6 to use ${keyName(this.input.binds.thermal[0])}` : `Slot 6 locked — unlock it in the Loadout (${keyName(this.input.binds.loadout[0])})`, 'warn'); return false; }
     if (!p.thermal.on && p.thermal.battery < 0.5) { this.hud.toast('Thermal battery recharging…', 'warn'); return false; }
     p.thermal.on = !p.thermal.on; sfx.click(); return true;
   }
@@ -455,6 +496,7 @@ export class Game {
       }
       this.input.endFrame();
     }
+    if (this.match?.phase === 'live') for (const a of this.actors) this.trackAwards(a, dt);
     for (const a of this.actors) {
       if (a === p) { this.updateStatus(a, dt); continue; }
       if (!this.owns(a)) { this.interpRemote(a, dt); continue; }
@@ -604,8 +646,9 @@ export class Game {
     if (a.plateT <= 0) { a.plateT = 0.15 + Math.random() * 0.1; a.plateLos = this.map.world.lineOfSight(this.camera.position, a.headPos(_b).add(_a.set(0, 0.3, 0))) && !this.combat.inSmoke(this.camera.position, a.chest(_b)); }
     pl.visible = a.alive && d < (ally ? 80 : 55) && (ally || a.plateLos || p.thermal.on && a.plateLos !== false);
     if (!pl.visible) return;
-    const col = a.isTarget ? '#ffd08a' : ally ? '#7fc4ff' : a.team === 'blue' ? '#7fb0ff' : a.team === 'red' ? '#ff8a7a' : '#ffb070';
-    drawPlate(pl, a.name, a.hp, a.armor, a.maxHp, col, a.ultra && a.ultraFrom, a.isBot ? a.tier : null);
+    // name in the actor's real team colour (matches their armour); teammates get a chevron marker
+    const col = a.isTarget ? '#ffd08a' : a.team === 'blue' ? '#5aaeff' : a.team === 'red' ? '#ff5a48' : '#ffb070';
+    drawPlate(pl, a.name, a.hp, a.armor, a.maxHp, col, a.ultra && a.ultraFrom, a.isBot ? a.tier : null, ally && !a.isTarget && !!this.match?.mode.teams);
     const k = Math.max(1, d / 14); pl.scale.set(1.15 * k, 0.36 * k, 1);
   }
   // grapple rope: from the hook launcher to the anchor (the hook flies out over g.fly seconds)

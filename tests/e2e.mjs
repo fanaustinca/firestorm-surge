@@ -328,6 +328,29 @@ try {
   check('Tennis Ball Launcher hits and balls bounce off walls', v26.tennis.dmg >= 40 && v26.tennis.bounces >= 1, JSON.stringify(v26.tennis));
   check('Spear: thrown headshot one-shots (even with armour), lands, can be picked up; RMB stab hits hard', v26.spear.headKill && v26.spear.out && v26.spear.landed && v26.spear.picked && v26.spear.stab >= 120, JSON.stringify(v26.spear));
   check('Slide: entry boost then friction slows you', v26.slide.start > 11 && v26.slide.later < v26.slide.start - 2.5, JSON.stringify(v26.slide));
+  // ───────── v2.7: regen, killstreak heals, awards, key binds ─────────
+  const v27 = await page.evaluate(() => {
+    const g = DEV.game; const out = {}; const god0 = g.god; g.god = false;
+    DEV.loadMap('cargo_yard', 'ffa'); g.timeScale = 0; DEV.advance(3.3); const P = g.player; DEV.clearBots(); DEV.teleport(-12, 0, 28, -Math.PI / 2); DEV.advance(0.1);
+    P.hp = 60; P.lastHurt = g.time; DEV.advance(2); const early = P.hp; DEV.advance(5); out.regen = { early: +early.toFixed(1), later: +P.hp.toFixed(1), flag: P.regen };
+    // killstreak: 3rd kill restores +50 HP and +25 armour
+    P.hp = 40; P.armor = 0; P.lastHurt = g.time; P.streak = 2;
+    const b = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-6, 0, 28] }); const bot = g.actors.find((x) => x.id === b);
+    g.damage(bot, 999, { attacker: P, weapon: 'assault_rifle' });
+    out.streak = { n: P.streak, hp: Math.round(P.hp), armor: Math.round(P.armor), banner: document.getElementById('streakban').textContent, best: P.stats.bestStreak };
+    g.damage(P, 999, { attacker: bot, weapon: 'assault_rifle' }); out.streak.reset = P.streak; DEV.advance(4);
+    DEV.clearBots(); g.god = god0; return out;
+  });
+  check('Out-of-combat regen: nothing for 5 s after a hit, then slow heal', v27.regen.early === 60 && v27.regen.later > 65 && v27.regen.later < 90, JSON.stringify(v27.regen));
+  check('Killstreak rewards heal: 3-kill streak = +50 HP +25 armour, banner, streak resets on death', v27.streak.n === 3 && v27.streak.hp === 90 && v27.streak.armor === 25 && /KILLING SPREE/.test(v27.streak.banner) && v27.streak.reset === 0, JSON.stringify(v27.streak));
+  const keys = await page.evaluate(() => {
+    const inp = DEV.game.input; inp.setBinds({ jump: 'KeyQ', thermal: 'KeyC' });
+    inp.keys.add('KeyQ'); const jumpQ = inp.sample().jump; inp.keys.delete('KeyQ');
+    inp.keys.add('Space'); const jumpSpace = inp.sample().jump; inp.keys.delete('Space');
+    const slideKeys = inp.binds.slide.slice(), hint = DEV.game.hud.hintText(); inp.setBinds({});
+    return { jumpQ, jumpSpace, slideKeys, hint, back: inp.binds.jump[0] };
+  });
+  check('Key rebinding: new key works, old one freed, conflicts resolved, HUD hint follows', keys.jumpQ && !keys.jumpSpace && keys.slideKeys[0] === 'KeyC' && /Q jump/.test(keys.hint) && keys.back === 'Space', JSON.stringify(keys));
   check('Grapple Hook costs 1800', (await page.evaluate(() => DEV.weapon('grapple_hook').price)) === 1800);
   const meta = await page.evaluate(() => {
     const pf = DEV.profile; const c0 = pf.coins; pf.d.wheelDay = null; const can = pf.canSpin(); const res = pf.spin(() => 0.01); const again = pf.spin();
@@ -520,7 +543,7 @@ try {
   check('Molotov fire shows flames only (no ring/disc)', molo.pools >= 1 && !molo.disc, JSON.stringify(molo));
 
   // ───────── nameplates + low HP vignette ─────────
-  const plates = await page.evaluate(() => { const g = DEV.game; DEV.loadMap('cargo_yard', 'red_vs_blue'); g.timeScale = 0; DEV.advance(3.3); DEV.clearBots(); DEV.teleport(0, 0, 20, 0); const id = DEV.spawnBot('blue', 'assault_rifle', { frozen: true, at: [0, 0, 12] }); const b = g.actors.find((a) => a.id === id); b.hp = 70; DEV.advance(0.4); g.renderFrame(1 / 60); g.renderFrame(1 / 60); const vis = b.plate?.visible; g.player.hp = 30; g.hud.update(0.016); const low = +document.getElementById('ov-low').style.opacity; return { vis, key: b.plate?.userData.key, low }; });
+  const plates = await page.evaluate(() => { const g = DEV.game; DEV.loadMap('cargo_yard', 'red_vs_blue'); g.timeScale = 0; DEV.advance(3.3); DEV.clearBots(); DEV.teleport(0, 0, 20, 0); const id = DEV.spawnBot('blue', 'assault_rifle', { frozen: true, at: [0, 0, 12] }); const b = g.actors.find((a) => a.id === id); b.hp = 70; b.lastHurt = g.time; DEV.advance(0.4); g.renderFrame(1 / 60); g.renderFrame(1 / 60); const vis = b.plate?.visible; g.player.hp = 30; g.hud.update(0.016); const low = +document.getElementById('ov-low').style.opacity; return { vis, key: b.plate?.userData.key, low }; });
   await shot('nameplate-lowhp');
   check('Callsign + health bar shown over enemies in sight', plates.vis && /\|70\|/.test(plates.key), plates.key);
   check('Screen edges tint red at low health', plates.low > 0.5, `opacity ${plates.low}`);
@@ -551,6 +574,13 @@ try {
   const rank = await page.evaluate(() => { const g = DEV.game; const p0 = DEV.profile.rank().points; g.match.rounds.red = 4; g.match.rounds.blue = 0; g.match.end(); const p1 = DEV.profile.rank().points; return { p0, p1, stored: JSON.parse(localStorage.getItem('firestorm-surge-profile-v1')).rankPts }; });
   check('Winning adds rank points (stored locally)', rank.p1 - rank.p0 === 70 && rank.stored === rank.p1, JSON.stringify(rank));
   await wait(400); await shot('results-rank');
+  const mvp = await page.evaluate(() => ({ card: document.querySelector('.mvp-card h3')?.textContent, awards: [...document.querySelectorAll('.award small')].map((e) => e.textContent) }));
+  check('Results show the match MVP + funny awards (always incl. MOST AFK)', !!mvp.card && mvp.awards.includes('MOST AFK'), JSON.stringify(mvp));
+  const stp = await page.evaluate(() => { DEV.game.ui.openStats(); return { tiles: document.querySelectorAll('.st-tile').length, mvps: [...document.querySelectorAll('.st-tile')].some((t) => /MVPs/.test(t.textContent)) }; });
+  await wait(200); await shot('stats-page');
+  check('Stats page shows lifetime career / combat / silly stats', stp.tiles >= 25 && stp.mvps, JSON.stringify(stp));
+  await page.evaluate(() => { DEV.game.ui.openControls(); }); await wait(200); await shot('controls');
+  const ctl = await page.evaluate(() => document.querySelectorAll('.kb-row').length); check('Controls screen lists every rebindable action', ctl === 15, String(ctl));
 
   await page.evaluate(() => { DEV.game.timeScale = 1; });
   // loadout UI

@@ -6,6 +6,7 @@ import { profile, WIN_POINTS } from './meta/profile.js';
 import { initAds, gameplay } from './meta/ads.js';
 import { sfx } from './core/audio.js';
 import { MODES } from './game/match.js';
+import { matchAwards } from './game/awards.js';
 
 const params = new URLSearchParams(location.search);
 const canvas = document.getElementById('c');
@@ -29,7 +30,7 @@ game.respawnActor = (a) => {
   respawn(a);
 };
 
-game.onPhase = (ph) => { if (ph === 'live') game.hud.center('<b>FIGHT!</b>', 1.2); if (ph === 'round') game.hud.center(`<b>ROUND ${game.match.round}</b>`, 1.6); };
+game.onPhase = (ph) => { if (ph === 'live') game.hud.center(`<b>FIGHT!</b>${game.match.mode.teams && !game.match.mode.practice ? `<br><span class="t-${game.player.team}">YOU ARE ${game.player.team.toUpperCase()} TEAM</span>` : ''}`, 1.8); if (ph === 'round') game.hud.center(`<b>ROUND ${game.match.round}</b>`, 1.6); };
 game.onRoundEnd = (w) => {
   const mine = game.player.team;
   game.hud.center(w ? `<b class="t-${w}">${w === mine ? 'ROUND WON' : 'ROUND LOST'}</b><br>${w.toUpperCase()} ${game.match.rounds.red}–${game.match.rounds.blue}` : '<b>ROUND DRAW</b>', 3);
@@ -46,6 +47,16 @@ game.onMatchEnd = (winner) => {
   const quests = profile.questProgress({ ...s, wins: win ? 1 : 0, matches: 1 });
   if (!m.mode.practice) { profile.bump('matches'); profile.bump(win ? 'wins' : winner == null ? 'draws' : 'losses'); if (s.kills === 0) profile.bump('zeroKillMatches'); profile.bump('damage', Math.round(s.damage)); }
   profile.save(); profile.clearTrials(); gameplay.stop(); if (win) gameplay.happy();
+  const aw = m.mode.practice ? { mvp: null, awards: [] } : matchAwards(game.actors);
+  if (!m.mode.practice) {
+    if (aw.mvp === p && game.actors.length > 1) profile.bump('mvps');
+    const afk = aw.awards.find((x) => x.id === 'afk'); if (afk?.who === p && p.aw.afk >= 10) profile.bump('afkAwards');
+    profile.bump('distance', Math.round(p.aw.dist)); profile.bump('slideTime', Math.round(p.aw.slide)); profile.bump('afkTime', Math.round(p.aw.afk));
+    profile.bump('playTime', Math.round(p.aw.time || 0));
+    profile.bump('bestKills', s.kills); profile.bump('bestDamage', Math.round(s.damage));
+  }
+  const pub = (a) => a ? { name: a.name, team: a.team, me: a === p, k: a.stats.kills, d: a.stats.deaths, dmg: Math.round(a.stats.damage), hs: a.stats.headshots, streak: a.stats.bestStreak, bot: !!a.isBot } : null;
+  const awards = { mvp: pub(aw.mvp), list: aw.awards.map((x) => ({ ...x, who: pub(x.who) })) };
   const board = [...game.actors].sort((a, b) => b.stats.kills - a.stats.kills).map((a) => ({ name: a.name, team: a.team, k: a.stats.kills, d: a.stats.deaths, dmg: Math.round(a.stats.damage), me: a === p }));
   const subtitle = m.roundBased ? `Rounds ${m.rounds.red}–${m.rounds.blue}` : m.mode.teams ? `Red ${m.score.red} – Blue ${m.score.blue}` : `Winner: ${game.actors.find((a) => a.id === winner)?.name || '—'}`;
   ui.lobby?.matchEnded();
@@ -53,7 +64,7 @@ game.onMatchEnd = (winner) => {
     if (game.match !== m) return;
     sfx.music(true);
     game.state = 'ended'; game.hud.show(false);
-    ui.results({ win, title: winner == null ? 'DRAW' : win ? 'VICTORY' : 'DEFEAT', subtitle: `${MODES[game.modeId].name} · ${game.map.info.name} · ${subtitle}`, coins, lines: [['Match bonus', '◉ 100'], [`Kill bounties (${game.killCount || 0})`, `◉ ${bounty}`], ['Win', `◉ ${winB}`], ['Damage', `◉ ${dmgB}`]], quests, rank: profile.rank(), rp, rankUp, board });
+    ui.results({ win, title: winner == null ? 'DRAW' : win ? 'VICTORY' : 'DEFEAT', subtitle: `${MODES[game.modeId].name} · ${game.map.info.name} · ${subtitle}`, coins, lines: [['Match bonus', '◉ 100'], [`Kill bounties (${game.killCount || 0})`, `◉ ${bounty}`], ['Win', `◉ ${winB}`], ['Damage', `◉ ${dmgB}`]], quests, rank: profile.rank(), rp, rankUp, board, awards });
   }, game.testMode ? 50 : 2500);
   game.hud.center(`<b>${winner == null ? 'DRAW' : win ? 'VICTORY' : 'DEFEAT'}</b>`, 3);
 };

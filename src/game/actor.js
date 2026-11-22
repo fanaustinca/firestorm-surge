@@ -29,9 +29,10 @@ export class Actor {
     this.loadout = {}; this.weapons = {}; this.slot = 1; this.prevSlot = 1; this.drawT = 0; this.mods = {};
     this.fx = { burn: null, bleed: [], stun: 0, flash: 0, adrenaline: 0, scythe: 0, scytheCd: 0, emotional: 0, chill: 0, chillSlow: 0, frost: 0, frozen: 0 };
     this.jumpsLeft = 0; this.climbing = false;
-    this.stats = { kills: 0, deaths: 0, assists: 0, damage: 0, headshots: 0, meleeKills: 0, explosiveKills: 0, emotional: 0, throws: 0, score: 0 };
+    this.stats = { kills: 0, deaths: 0, assists: 0, damage: 0, headshots: 0, meleeKills: 0, explosiveKills: 0, emotional: 0, throws: 0, score: 0, bestStreak: 0 };
+    this.streak = 0; this.aw = { afk: 0, still: 0, dist: 0, slide: 0, taken: 0, air: 0, lx: null, lz: 0, ly: 0, lyaw: 0 };   // end-of-match award counters
     this.thermal = { on: false, battery: 8 };
-    this.skins = {}; this.rig = null; this.animPhase = 0; this.lastAttacker = null; this.lastHurt = 0;
+    this.skins = {}; this.rig = null; this.animPhase = 0; this.lastAttacker = null; this.lastHurt = -99;
     this.ads = false; this.recoil = 0; this.bloom = 0;
     this.grapple = null; this.grappleCd = 0; this.slideT = 0; this.slideCd = 0; this.slideDir = new THREE.Vector3(); this.low = 0;
   }

@@ -54,8 +54,17 @@ export const ACHIEVEMENTS = [
   { id: 'get_over_here', name: 'Get Over Here!', desc: 'Fire the grapple hook 50 times', stat: 'grapples', goal: 50, reward: 100, icon: '🪝' },
   { id: 'slip_n_slide', name: 'Slip \'n Slide', desc: 'Slide 100 times', stat: 'slides', goal: 100, reward: 100, icon: '🛝' },
   { id: 'spin_doctor', name: 'Spin Doctor', desc: 'Spin the Daily Wheel 7 times', stat: 'spins', goal: 7, reward: 150, icon: '🎡' },
+  { id: 'rampage', name: 'Rampage', desc: 'Get a 5-kill streak without dying', stat: 'bestStreak', goal: 5, reward: 200, icon: '🔥', max: true },
+  { id: 'main_character', name: 'Main Character Energy', desc: '10-kill streak. The NPCs are getting nervous', stat: 'bestStreak', goal: 10, reward: 500, icon: '🎬', max: true },
+  { id: 'mvp1', name: 'Most Valuable Pixel', desc: 'Be MVP of a match', stat: 'mvps', goal: 1, reward: 100, icon: '⭐' },
+  { id: 'mvp10', name: 'Carried Again', desc: 'Be MVP 10 times. Your team owes you lunch', stat: 'mvps', goal: 10, reward: 400, icon: '🎒' },
+  { id: 'sandwich', name: 'Sandwich Break', desc: 'Win the Most AFK award. Was the sandwich good at least?', stat: 'afkAwards', goal: 1, reward: 50, icon: '🥪' },
+  { id: 'marathon', name: 'Marathon Runner', desc: 'Travel 42 km in total', stat: 'distance', goal: 42000, reward: 300, icon: '🏃' },
   { id: 'dragon_hoard', name: 'Dragon Hoard', desc: 'Hold 5,000 coins at once (spending is for quitters)', stat: 'coinPeak', goal: 5000, reward: 250, icon: '🐉', max: true },
 ];
+
+// lifetime stats that keep the best value instead of adding up
+const MAX_STATS = new Set(['coinPeak', 'bestStreak', 'bestKills', 'bestDamage']);
 
 // ─── Daily Wheel: one free spin per day ───
 export const WHEEL = [
@@ -109,7 +118,7 @@ class Profile {
   // add n to a lifetime counter (or raise a max-type one); returns newly unlocked achievements (already paid)
   bump(stat, n = 1) {
     const L = (this.d.life ||= {}); const A = (this.d.ach ||= {});
-    const maxType = ACHIEVEMENTS.some((x) => x.stat === stat && x.max);
+    const maxType = MAX_STATS.has(stat) || ACHIEVEMENTS.some((x) => x.stat === stat && x.max);
     L[stat] = maxType ? Math.max(L[stat] || 0, n) : (L[stat] || 0) + n;
     const fresh = [];
     for (const a of ACHIEVEMENTS) if (a.stat === stat && !A[a.id] && L[stat] >= a.goal) { A[a.id] = Date.now(); fresh.push(a); }

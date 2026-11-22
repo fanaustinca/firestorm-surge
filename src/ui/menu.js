@@ -9,6 +9,7 @@ import { profile, RANKS, ACHIEVEMENTS, WHEEL } from '../meta/profile.js';
 import { showRewardedAd, gameplay } from '../meta/ads.js';
 import { setHolidayMode, holidayFor } from '../render/models.js';
 import { sfx } from '../core/audio.js';
+import { KEY_ACTIONS, keyName } from '../core/input.js';
 import { esc } from './hud.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -46,16 +47,16 @@ export class UI {
             </div>
           </section>
           <aside>
-            <button class="btn wide" id="loadout">LOADOUT & SHOP <kbd>B</kbd></button>
+            <button class="btn wide" id="loadout">LOADOUT & SHOP <kbd>${keyName(this.g.input.binds.loadout[0])}</kbd></button>
             <button class="btn wide wheel-btn ${profile.canSpin() ? 'ready' : ''}" id="wheel">🎡 DAILY WHEEL</button>
-            <button class="btn wide" id="achs">🏆 ACHIEVEMENTS · ${ACHIEVEMENTS.filter((a) => profile.achieved(a.id)).length}/${ACHIEVEMENTS.length}</button>
+            <div class="duo"><button class="btn" id="achs">🏆 ${ACHIEVEMENTS.filter((a) => profile.achieved(a.id)).length}/${ACHIEVEMENTS.length}</button><button class="btn" id="stats">📊 STATS</button></div>
             <div class="panel"><h4>Daily Quests</h4>${q}</div>
             <div class="panel loadprev">${[1, 2, 3, 4, 5, 6].map((s) => { const id = profile.effectiveLoadout()[s]; return `<div class="lp ${id ? '' : 'empty'}"><img src="${id ? itemIcon(id, profile.skinFor(id)) : ''}" alt=""><small>${s} · ${id ? WEAPON_BY_ID[id].name : (profile.slotOpen(s) ? 'Empty' : 'Locked')}</small></div>`; }).join('')}</div>
             ${hol}
             <button class="btn wide ghost" id="settings">SETTINGS</button>
           </aside>
         </div>
-        <footer>WASD · Space · Mouse · LMB fire · RMB aim/ability · C slide · R reload · 1–5 slots · F/V thermal · Tab scores · B/M loadout <span class="ver">Firestorm Surge v${VERSION}</span></footer>
+        <footer>${this.g.hud.hintText()} <span class="ver">Firestorm Surge v${VERSION}</span></footer>
       </div>`;
     this.root.style.display = 'block';
     this.root.querySelectorAll('[data-mode]').forEach((b) => b.onclick = () => { this.sel.mode = b.dataset.mode; sfx.ui(); this.showMenu(); });
@@ -66,6 +67,28 @@ export class UI {
     $('#settings').onclick = () => this.openSettings();
     $('#wheel').onclick = () => { sfx.init(); sfx.ui(); this.openWheel(); };
     $('#achs').onclick = () => { sfx.ui(); this.openAchievements(); };
+    $('#stats').onclick = () => { sfx.ui(); this.openStats(); };
+  }
+
+  // ───────── lifetime stats ─────────
+  openStats() {
+    this.view = 'stats';
+    const L = (k) => profile.life(k), T = profile.d.totals || {};
+    const kills = Math.max(L('kills'), T.kills || 0), deaths = Math.max(L('deaths'), T.deaths || 0), matches = Math.max(L('matches'), T.matches || 0), wins = Math.max(L('wins'), T.wins || 0);
+    const n = (v) => Math.round(v).toLocaleString(), pct = (a, b) => (b ? Math.round((a / b) * 100) : 0) + '%';
+    const dur = (sec) => sec >= 3600 ? `${(sec / 3600).toFixed(1)} h` : sec >= 60 ? `${Math.round(sec / 60)} min` : `${Math.round(sec)} s`;
+    const tile = (label, v, hl) => `<div class="st-tile ${hl ? 'hl' : ''}"><small>${label}</small><b>${v}</b></div>`;
+    const sec = (title, tiles) => `<h3 class="st-sec">${title}</h3><div class="st-grid">${tiles.join('')}</div>`;
+    const wk = Object.entries(profile.d.weaponKills || {}).filter(([id]) => WEAPON_BY_ID[id]).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const top = wk[0]?.[1] || 1;
+    const fav = wk.length ? `<div class="fav">${wk.map(([id, k], i) => `<div class="fav-row"><span>#${i + 1}</span><img src="${itemIcon(id, profile.skinFor(id)) || ''}" alt=""><div><div>${esc(WEAPON_BY_ID[id].name)}</div><div class="fb"><i style="width:${(k / top) * 100}%"></i></div></div><b>${n(k)}</b></div>`).join('')}</div>` : '<p class="status">No kills yet — go get some!</p>';
+    this.root.innerHTML = `<div class="modal statspage"><header><h2>📊 YOUR STATS</h2><div class="meta"><button class="btn ghost" id="st-close">CLOSE ✕</button></div></header>
+      ${sec('Career', [tile('Matches', n(matches)), tile('Wins', n(wins), 1), tile('Losses', n(L('losses'))), tile('Win rate', pct(wins, matches), 1), tile('MVPs ⭐', n(L('mvps')), 1), tile('Time played', dur(L('playTime')))])}
+      ${sec('Combat', [tile('Kills', n(kills), 1), tile('Deaths', n(deaths)), tile('K/D', (kills / Math.max(1, deaths)).toFixed(2), 1), tile('Headshots', n(L('headshots'))), tile('Headshot %', pct(L('headshots'), kills)), tile('Damage', n(L('damage'))), tile('Avg damage / match', n(L('damage') / Math.max(1, L('matches')))), tile('Best streak 🔥', n(L('bestStreak')), 1), tile('Most kills (1 match)', n(L('bestKills'))), tile('Most damage (1 match)', n(L('bestDamage'))), tile('Melee kills', n(L('meleeKills'))), tile('Explosive kills', n(L('explosiveKills')))])}
+      ${sec('Silly stuff', [tile('Distance run', (L('distance') / 1000).toFixed(2) + ' km'), tile('Time sliding', dur(L('slideTime'))), tile('Time AFK 💤', dur(L('afkTime'))), tile('Most-AFK awards', n(L('afkAwards'))), tile('Emotional damage', n(L('emotional'))), tile('Blew yourself up', n(L('selfKills'))), tile('Died in < 5 s', n(L('quickDeaths'))), tile('Grapples', n(L('grapples'))), tile('Wheel spins', n(L('spins')))])}
+      <h3 class="st-sec">Favourite weapons</h3>${fav}</div>`;
+    this.root.style.display = 'block';
+    $('#st-close').onclick = () => this.showMenu();
   }
 
   // ───────── daily wheel ─────────
@@ -289,10 +312,13 @@ export class UI {
       <label>Volume <input id="vol" type="range" min="0" max="1" step="0.05" value="${s.volume}"><output>${s.volume}</output></label>
       <label>Field of view <input id="fov" type="range" min="65" max="100" step="1" value="${s.fov}"><output>${s.fov}</output></label>
       <label>Holiday reskins <select id="hol"><option value="auto">Auto (by month)</option><option value="on">Always on</option><option value="off">Off</option></select></label>
+      <button class="btn wide ghost" id="keys">⌨ CONTROLS / KEY BINDINGS</button>
       <label>Graphics quality <select id="gq"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low (fast)</option></select></label>
       <button class="btn primary" id="done">DONE</button></div>`;
     this.root.style.display = 'block'; $('#hol').value = s.holiday; $('#gq').value = s.quality || 'high';
     this.root.querySelectorAll('input[type=range]').forEach((i) => i.oninput = () => { i.nextElementSibling.textContent = i.value; });
+    const keep = () => { s.sens = +$('#sens').value; s.volume = +$('#vol').value; s.fov = +$('#fov').value; s.holiday = $('#hol').value; s.quality = $('#gq').value; };
+    $('#keys').onclick = () => { keep(); profile.save(); this.openControls(fromPause); };
     $('#done').onclick = () => {
       s.sens = +$('#sens').value; s.volume = +$('#vol').value; s.fov = +$('#fov').value; s.holiday = $('#hol').value; s.quality = $('#gq').value;
       profile.d.name = ($('#nm').value.trim() || profile.d.name).slice(0, 16); this.g.playerName = profile.d.name;
@@ -301,11 +327,51 @@ export class UI {
     };
   }
 
+  // ───────── key bindings ─────────
+  openControls(fromPause) {
+    const s = profile.d.settings; s.keys ||= {}; const inp = this.g.input;
+    const render = () => {
+      const rows = Object.entries(KEY_ACTIONS).map(([a, [label]]) => `<div class="kb-row"><span>${label}</span><button class="btn kb-key ${s.keys[a] ? 'custom' : ''}" data-a="${a}">${keyName(inp.binds[a][0])}</button><small>${inp.binds[a][1] ? 'also ' + keyName(inp.binds[a][1]) : ''}</small></div>`).join('');
+      this.root.innerHTML = `<div class="modal controls"><h2>⌨ CONTROLS</h2><p class="status">Click a key, then press the new one (Esc cancels). Mouse: LMB fire · RMB aim / ability.</p>
+        <div class="kb-list">${rows}</div><div class="actions"><button class="btn ghost" id="kb-reset">RESET TO DEFAULTS</button><button class="btn primary" id="kb-done">DONE</button></div></div>`;
+      this.root.style.display = 'block';
+      this.root.querySelectorAll('.kb-key').forEach((b) => b.onclick = () => {
+        b.textContent = 'press a key…'; b.classList.add('wait');
+        inp.capture = (code) => {
+          const a = b.dataset.a;
+          if (code !== 'Escape') {
+            // swap: whoever had this key gets our old primary
+            const old = inp.binds[a][0];
+            for (const o in KEY_ACTIONS) if (o !== a && inp.binds[o][0] === code) s.keys[o] = old;
+            s.keys[a] = code;
+            for (const o in KEY_ACTIONS) if (s.keys[o] === KEY_ACTIONS[o][1]) delete s.keys[o];
+            inp.setBinds(s.keys); profile.save(); this.g.hud.updateHint();
+          }
+          render();
+        };
+      });
+      $('#kb-reset').onclick = () => { s.keys = {}; inp.setBinds({}); profile.save(); this.g.hud.updateHint(); render(); };
+      $('#kb-done').onclick = () => { inp.capture = null; this.openSettings(fromPause); };
+    };
+    render();
+  }
+
+  // ───────── MVP + funny awards (results screen) ─────────
+  awardsHtml(aw) {
+    if (!aw?.mvp) return '';
+    const m = aw.mvp; const who = (w) => `<span class="t-${w.team}">${esc(w.name)}</span>${w.me ? ' <em class="you">YOU</em>' : ''}`;
+    const cards = aw.list.map((x) => `<div class="award ${x.who?.me ? 'me' : ''} ${x.id === 'afk' ? 'afk' : ''}"><span class="ai">${x.icon}</span><div><small>${x.title}</small><b>${x.who ? who(x.who) : 'Nobody'}</b><em>${esc(x.flavour)}</em></div><i>${x.value}</i></div>`).join('');
+    return `<div class="mvp-wrap"><div class="mvp-card ${m.me ? 'me' : ''}" style="--tc:var(--${m.team === 'blue' ? 'blue' : m.team === 'red' ? 'red' : 'fire2'})"><div class="star">⭐</div><small>MATCH MVP</small><h3>${who(m)}</h3>
+      <div class="mvp-stats"><span><b>${m.k}</b>kills</span><span><b>${m.d}</b>deaths</span><span><b>${m.dmg}</b>damage</span><span><b>${m.hs}</b>headshots</span><span><b>${m.streak}</b>best streak</span></div></div>
+      <div class="awards">${cards}</div></div>`;
+  }
+
   // ───────── results ─────────
   results(r) {
     this.g.input.exitLock();
     const rows = r.board.map((p) => `<tr class="${p.me ? 'me' : ''}"><td><span class="dot t-${p.team}"></span>${esc(p.name)}</td><td>${p.k}</td><td>${p.d}</td><td>${p.dmg}</td></tr>`).join('');
     this.root.innerHTML = `<div class="modal results ${r.win ? 'win' : 'loss'}"><h1>${r.title}</h1><p class="sub">${r.subtitle}</p>
+      ${this.awardsHtml(r.awards)}
       <div class="rgrid"><div class="earn"><h4>Rewards</h4>${r.lines.map(([a, b]) => `<div class="ln"><span>${a}</span><b>${b}</b></div>`).join('')}<div class="ln total"><span>Total</span><b>◉ ${r.coins}</b></div>
       ${r.quests.length ? `<h4>Quests completed</h4>${r.quests.map((q) => `<div class="ln q"><span>✓ ${q.text}</span><b>+${q.reward}</b></div>`).join('')}` : ''}
       <h4>Rank</h4><div class="ln rankln" style="--rc:${r.rank.color}"><span>${r.rankUp ? '<b class="rankup">RANK UP! </b>' : ''}${r.rank.name} <small>${r.rank.points} RP${r.rank.next ? ' / ' + r.rank.next.min : ''}</small></span><b>${r.rp ? '+' + r.rp + ' RP' : 'win to rank up'}</b></div><i class="rbar"><u style="width:${Math.round(r.rank.frac * 100)}%"></u></i></div>

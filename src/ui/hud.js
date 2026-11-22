@@ -2,6 +2,7 @@
 // radar, overlays (flash, thermal, stun, scope, low HP), toasts, EMOTIONAL DAMAGE popup.
 import { WEAPON_BY_ID, SLOT_NAMES } from '../data/weapons.js';
 import { itemIcon } from '../render/icons.js';
+import { keyName } from '../core/input.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const fmt = (t) => { t = Math.max(0, Math.ceil(t)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
@@ -16,6 +17,7 @@ export class Hud {
       <div id="topbar"><div class="team red"><span id="sc-l">0</span></div><div class="mid"><div id="timer">0:00</div><div id="sclabel"></div></div><div class="team blue"><span id="sc-r">0</span></div></div>
       <canvas id="radar" width="168" height="168"></canvas>
       <div id="killfeed"></div>
+      <div id="teambadge"></div><div id="streakban"></div>
       <div id="health"><div class="row"><span class="ico">✚</span><div class="bar"><i id="hpbar"></i><i id="arbar"></i></div><span id="hpnum">150</span></div><div id="status"></div></div>
       <div id="ammo"><div id="wname"></div><div class="nums"><span id="mag">30</span><span id="res">/ 150</span></div><div id="reload"><i></i></div></div>
       <div id="slots"></div>
@@ -28,13 +30,18 @@ export class Hud {
       <div id="killban"></div>
       <div id="scoreboard"></div>
       <div id="spectate"></div>
-      <div id="hint">WASD move · Space jump · Mouse aim · LMB fire · RMB aim/ability · C slide · R reload · 1–5 slots · F thermal · Tab scores · B loadout</div>`;
+      <div id="hint"></div>`;
     this.el = {};
     for (const id of ['xhair', 'hitmark', 'dmgdir', 'sc-l', 'sc-r', 'timer', 'sclabel', 'radar', 'killfeed', 'hpbar', 'arbar', 'hpnum', 'status', 'wname', 'mag', 'res', 'reload', 'slots', 'toast', 'center-msg', 'useprog', 'scope', 'adsdot', 'ov-flash', 'ov-thermal', 'ov-stun', 'ov-low', 'ov-dmg', 'emo', 'scoreboard', 'spectate', 'hint']) this.el[id] = document.getElementById(id);
     this.rctx = this.el.radar.getContext('2d');
     this.hitT = 0; this.flashT = 0; this.flashMax = 1; this.emoT = 0; this.toastT = 0; this.dmgT = 0;
-    setTimeout(() => this.el.hint.classList.add('fade'), 9000);
+    this.updateHint(); setTimeout(() => this.el.hint.classList.add('fade'), 9000);
   }
+  hintText() {
+    const b = this.g.input.binds, k = (a) => keyName(b[a][0]);
+    return `${k('forward')}${k('left')}${k('back')}${k('right')} move · ${k('jump')} jump · Mouse aim · LMB fire · RMB aim/ability · ${k('slide')} slide · ${k('reload')} reload · ${k('slot1')}–${k('slot5')} slots · ${k('thermal')} thermal · ${k('scores')} scores · ${k('loadout')} loadout`;
+  }
+  updateHint() { this.el.hint.textContent = this.hintText(); }
   show(v) { this.root.style.display = v ? 'block' : 'none'; }
 
   hitmarker(head, kill) {
@@ -75,6 +82,13 @@ export class Hud {
     row.innerHTML = `<span class="x">✖</span><b>ELIMINATED</b> ${esc(name)}${w ? `<img src="${itemIcon(weapon) || ''}" alt=""><small>${esc(w.name)}</small>` : ''}${extra ? `<em>${extra}</em>` : ''}${coins ? `<i>+${coins} ◉</i>` : ''}`;
     el.prepend(row); while (el.children.length > 3) el.lastChild.remove();
     setTimeout(() => row.classList.add('out'), 2300); setTimeout(() => row.remove(), 2800);
+  }
+  // killstreak reward banner (health / armour restored)
+  streak(n, name, hp, armor) {
+    const el = document.getElementById('streakban'); if (!el) return;
+    el.innerHTML = `<b>${name || n + ' KILL STREAK'}</b><span>${n} kills without dying${hp ? ` · <em>+${hp} HP</em>` : ''}${armor ? ` · <u>+${armor} ARMOR</u>` : ''}${!hp && !armor ? ' · already full health' : ''}</span>`;
+    el.classList.remove('on', 'big'); void el.offsetWidth; el.classList.add('on'); if (name) el.classList.add('big');
+    clearTimeout(this.streakTO); this.streakTO = setTimeout(() => el.classList.remove('on'), 2600);
   }
   center(msg, t = 2) { const c = this.el['center-msg']; c.innerHTML = msg; c.classList.add('on'); this.centerT = t; }
   killfeed(killer, victim, weapon, head) {
@@ -121,6 +135,8 @@ export class Hud {
       this.el.sclabel.textContent = s.ffa ? `YOU · LEADER ${s.leader ? s.leader.toUpperCase() : ''} · ${s.label}` : `${m.mode.short} · ${s.label}`;
       this.el.timer.textContent = m.phase === 'warmup' ? `${Math.ceil(m.t)}` : m.mode.practice ? '∞' : fmt(m.timeLeft);
       this.root.classList.toggle('ffa', !!s.ffa);
+      const tm = m.mode.teams && !m.mode.practice ? a.team : '';
+      if (this.root.dataset.team !== tm) { this.root.dataset.team = tm; document.getElementById('teambadge').innerHTML = tm ? `<i></i>YOU ARE <b>${tm.toUpperCase()} TEAM</b>` : ''; }
     }
     // health
     this.el.hpbar.style.width = `${(a.hp / 200) * 100}%`; this.el.arbar.style.width = `${(a.armor / 200) * 100}%`; this.el.arbar.style.left = `${(a.hp / 200) * 100}%`;
@@ -131,6 +147,9 @@ export class Hud {
     if (a.fx.stun > 0) st.push('<span class="st stun">⚡ STUNNED</span>');
     if (a.fx.adrenaline > 0) st.push(`<span class="st adr">💉 ${a.fx.adrenaline.toFixed(1)}s</span>`);
     if (a.fx.scythe > 0) st.push('<span class="st reap">☠ REAPER RUSH</span>');
+    if (a.regen) st.push('<span class="st regen">✚ REGENERATING</span>');
+    if (a.streak >= 2) st.push(`<span class="st streak">🔥 STREAK ${a.streak}</span>`);
+    this.el.hpbar.classList.toggle('regen', !!a.regen);
     if (a.loadout[6] === 'thermal_goggles') st.push(`<span class="st th${a.thermal.on ? ' on' : ''}">◉ THERMAL ${Math.round(a.thermal.battery / 8 * 100)}%</span>`);
     if (a.loadout[6] === 'spring_boots') st.push(`<span class="st boots">⇈ ${a.jumpsLeft > 0 || a.onGround ? 'DOUBLE JUMP' : '—'}</span>`);
     this.el.status.innerHTML = st.join('');
@@ -187,7 +206,7 @@ export class Hud {
     this.el.spectate.style.display = !a.alive && m && !m.ended ? 'block' : 'none';
     if (!a.alive && m) this.el.spectate.innerHTML = m.roundBased ? `<b>ELIMINATED</b><br>Spectating — next round soon` : `<b>KILLED${a.lastAttacker && a.lastAttacker !== a ? ' BY ' + esc(a.lastAttacker.name).toUpperCase() : ''}</b><br>Respawning in ${Math.max(0, a.respawnT).toFixed(1)}s`;
     this.drawRadar();
-    if (g.input?.down('Tab')) this.renderScoreboard(); else this.el.scoreboard.classList.remove('on');
+    if (g.input?.act('scores')) this.renderScoreboard(); else this.el.scoreboard.classList.remove('on');
   }
 
   drawRadar() {

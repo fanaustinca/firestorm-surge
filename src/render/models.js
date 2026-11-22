@@ -83,11 +83,11 @@ export function buildSoldier(team = 'red', variant = 0) {
   const root = new THREE.Group(); root.name = 'soldier';
   const tc = new THREE.Color(teamColor(team));
   const fatigue = new THREE.MeshStandardMaterial({ color: [0x4a5040, 0x5b5546, 0x3d4650][variant % 3], roughness: 0.85 });
-  const teamMat = new THREE.MeshStandardMaterial({ color: tc, roughness: 0.55, metalness: 0.1, emissive: tc.clone().multiplyScalar(0.12) });
+  const teamMat = new THREE.MeshStandardMaterial({ color: tc, roughness: 0.5, metalness: 0.1, emissive: tc.clone().multiplyScalar(0.3) });
   const vestMat = new THREE.MeshStandardMaterial({ color: 0x2c3028, roughness: 0.8 });
   const skin = new THREE.MeshStandardMaterial({ color: [0xc69070, 0x8d5a3b, 0xe0b090, 0x5a3a28][variant % 4], roughness: 0.7 });
-  const helm = new THREE.MeshStandardMaterial({ color: 0x3a3f36, roughness: 0.6, metalness: 0.2 });
-  const visor = new THREE.MeshStandardMaterial({ color: 0x111820, metalness: 0.9, roughness: 0.1, emissive: tc.clone().multiplyScalar(0.25) });
+  const helm = new THREE.MeshStandardMaterial({ color: new THREE.Color(0x2a2e28).lerp(tc, 0.7), roughness: 0.5, metalness: 0.2, emissive: tc.clone().multiplyScalar(0.08) });   // team-coloured helmet
+  const visor = new THREE.MeshStandardMaterial({ color: 0x111820, metalness: 0.9, roughness: 0.1, emissive: tc.clone().multiplyScalar(0.6) });
   const boot = new THREE.MeshStandardMaterial({ color: 0x1d1b18, roughness: 0.8 });
   const parts = {};
   const hips = new THREE.Group(); hips.position.y = 0.95; root.add(hips); parts.hips = hips;
@@ -96,7 +96,8 @@ export function buildSoldier(team = 'red', variant = 0) {
   const torso = new THREE.Group(); torso.position.y = 0.08; hips.add(torso); parts.torso = torso;
   P(torso, rbox(0.38, 0.44, 0.22, 0.07), fatigue, 0, 0.24, 0);
   P(torso, rbox(0.4, 0.34, 0.26, 0.05), vestMat, 0, 0.26, 0);
-  P(torso, rbox(0.3, 0.07, 0.03, 0.01), teamMat, 0, 0.36, -0.135);           // chest team stripe
+  P(torso, rbox(0.34, 0.1, 0.03, 0.01), teamMat, 0, 0.36, -0.135);           // chest team stripe
+  P(torso, rbox(0.3, 0.26, 0.03, 0.01), teamMat, 0, 0.26, 0.235);            // big team panel on the backpack
   P(torso, rbox(0.12, 0.1, 0.05, 0.02), vestMat, -0.1, 0.14, -0.14);
   P(torso, rbox(0.12, 0.1, 0.05, 0.02), vestMat, 0.1, 0.14, -0.14);
   P(torso, rbox(0.28, 0.3, 0.12, 0.04), vestMat, 0, 0.26, 0.17);              // backpack
@@ -111,6 +112,7 @@ export function buildSoldier(team = 'red', variant = 0) {
   const arm = (sx) => {
     const sh = new THREE.Group(); sh.position.set(sx * 0.24, 0.42, 0); torso.add(sh);
     P(sh, cylY(0.055, 0.05, 0.28, 10), fatigue, 0, -0.14, 0);
+    P(sh, cylY(0.062, 0.06, 0.08, 10), teamMat, 0, -0.1, 0);                  // armband
     const el = new THREE.Group(); el.position.y = -0.28; sh.add(el);
     P(el, cylY(0.048, 0.042, 0.26, 10), fatigue, 0, -0.13, 0);
     const hand = glove(mats(), sx, { guard: false }); hand.scale.setScalar(0.85); hand.position.set(0, -0.29, 0); hand.rotation.x = Math.PI / 2; el.add(hand);
@@ -122,7 +124,7 @@ export function buildSoldier(team = 'red', variant = 0) {
     P(hip, cylY(0.075, 0.065, 0.42, 10), fatigue, 0, -0.21, 0);
     P(hip, rbox(0.1, 0.1, 0.05, 0.02), vestMat, sx * 0.05, -0.18, -0.06);
     const knee = new THREE.Group(); knee.position.y = -0.42; hip.add(knee);
-    P(knee, sphere(0.06, 10, 8), vestMat, 0, 0, -0.04);
+    P(knee, sphere(0.06, 10, 8), teamMat, 0, 0, -0.04);                       // team knee pads
     P(knee, cylY(0.06, 0.05, 0.42, 10), fatigue, 0, -0.21, 0);
     P(knee, rbox(0.11, 0.08, 0.24, 0.03), boot, 0, -0.44, -0.04);
     return { hip, knee };
