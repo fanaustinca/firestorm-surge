@@ -20,6 +20,7 @@ import { profile } from '../meta/profile.js';
 import { gameplay } from '../meta/ads.js';
 import { WEAPON_BY_ID, BASE_HP, MAX_ARMOR, isExplosive, ULTRA_OF, baseId } from '../data/weapons.js';
 import { randomNode, findPath } from './bots.js';
+import { deathQuip, botLine } from './comedy.js';
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const STEP = 1 / 60;
@@ -208,6 +209,7 @@ export class Game {
 
   // ═════════════════ damage / status ═════════════════
   damage(t, amount, info = {}) {
+    { const atk = info.attacker; if (atk && atk !== t && t.alive && !info.explosive && !info.fire && !info.slip) atk.aw.hits++; }
     if (!t || !t.alive || amount <= 0) return;
     const atk = info.attacker;
     if (!this.owns(t)) {
@@ -253,6 +255,7 @@ export class Game {
     if (!t.alive) return;
     const killer = info.attacker;
     t.alive = false; t.hp = 0; t.stats.deaths++; t.deathT = 0; t.fx.burn = null; t.fx.bleed = []; t.thermal.on = false; t.streak = 0;
+    if (info.yeet == null) info.yeet = this.shouldYeet(info);
     if (killer && killer !== t) {
       killer.stats.kills++; if (!t.isTarget) this.addStreak(killer);
       if (info.melee) killer.stats.meleeKills++;
@@ -260,6 +263,7 @@ export class Game {
     }
     this.match.onKill(t, killer);
     this.hud.killfeed(killer, t, info.weapon, info.head);
+    this.killFlair(t, killer, info);
     if (killer === this.player && t !== this.player) {
       sfx.kill();
       const tier = profile.addWeaponKill(baseId(info.weapon)); profile.save();
@@ -274,8 +278,66 @@ export class Game {
         if (killer === t && (info.explosive || isExplosive(WEAPON_BY_ID[info.weapon] || {}))) this.ach('selfKills');
       }
     }
-    if (this.owns(t) && this.net.connected) this.net.event({ t: 'kill', victim: t.id, killer: killer?.id, weapon: info.weapon, head: !!info.head, melee: !!info.melee, explosive: !!info.explosive });
+    if (this.owns(t) && this.net.connected) this.net.event({ t: 'kill', victim: t.id, killer: killer?.id, weapon: info.weapon, head: !!info.head, melee: !!info.melee, explosive: !!info.explosive, yeet: info.yeet ? 1 : 0 });
   }
+  // ═════════════════ comedy ═════════════════
+  // big-knockback deaths launch the body into the sky (decided by the victim's owner, synced in the kill event)
+  shouldYeet(info) {
+    const w = WEAPON_BY_ID[info.weapon] || {}; const b = baseId(info.weapon);
+    if (['rubber_chicken', 'confetti_cannon', 'bat', 'turkey_launcher', 'present_launcher', 'banana_peel'].includes(b)) return true;
+    if (info.explosive || w.splash) return Math.random() < 0.55;
+    return w.knockback ? Math.random() < 0.3 : false;
+  }
+  killFlair(t, k, info) {
+    const w = baseId(info.weapon || ''); const at = t === this.player ? null : t.chest(V());
+    if (info.yeet && !t.isTarget) {
+      const d = k && k !== t ? _a.subVectors(t.pos, k.pos).setY(0) : _a.set(Math.random() - 0.5, 0, Math.random() - 0.5); if (d.lengthSq() < 1e-4) d.set(1, 0, 0); d.normalize();
+      t.yeet = { v: new THREE.Vector3(d.x * 9, 14 + Math.random() * 4, d.z * 9), spin: (Math.random() < 0.5 ? -1 : 1) * (9 + Math.random() * 7), p: t.pos.clone(), floor: t.pos.y };
+      sfx.yeet(at); this.effects.popup('YEET!', t.headPos(V()).add(_b.set(0, 0.9, 0)), { size: 150, time: 1.4 });
+      if (k && k !== t) { k.aw.yeets++; if (k === this.player) this.ach('yeets'); }
+      if (t.isBot) this.botSay(t, 'yeet', {}, 0.45);
+    }
+    if (w === 'confetti_cannon' || w === 'present_launcher') { this.effects.confetti(t.chest(V()), 70); sfx.partyHorn(at); }
+    if (w === 'turkey_launcher' || w === 'rubber_chicken') this.effects.feathers(t.chest(V()), 24);
+    if (k && k !== t && !t.isTarget) {
+      k.vs ||= {}; t.vs ||= {};
+      const revenge = k.lastKilledBy === t.id; k.vs[t.id] = (k.vs[t.id] || 0) + 1; t.vs[k.id] = 0;
+      k.aw.victims[t.id] = (k.aw.victims[t.id] || 0) + 1;
+      const dom = k.vs[t.id] >= 3 ? k.vs[t.id] : 0; info.revenge = revenge; info.dom = dom;
+      if (revenge) { k.aw.revenge++; k.lastKilledBy = null; if (k === this.player) { this.effects.popup('REVENGE!', t.headPos(V()).add(_b.set(0, 1.4, 0)), { size: 130, time: 1.5, top: '#ff9a9a', bottom: '#c01010' }); this.ach('revenges'); } }
+      if (k === this.player && dom === 3) this.hud.toast(`You are DOMINATING ${t.name}!`, 'gold');
+      if (t === this.player && dom >= 3) this.hud.toast(`${k.name} is DOMINATING you 😭 (${dom} in a row)`, 'warn');
+      if (k.isBot) this.botSay(k, revenge ? 'revenge' : 'kill', { victim: t.name }, revenge ? 0.8 : 0.22);
+      if (t.isBot) this.botSay(t, dom >= 3 ? 'dominated' : 'death', { killer: k.name, weapon: info.weapon }, dom >= 3 ? 0.7 : 0.32);
+    }
+    if (!t.isTarget) t.lastKilledBy = k && k !== t ? k.id : null;
+    if (t === this.player) {
+      const self = !k || k === t; const quick = t.aliveSince != null && this.time - t.aliveSince < 5;
+      this.deathQuip = deathQuip({ weapon: info.weapon, self, quick });
+      if (self || quick) sfx.sadTrombone();
+    }
+  }
+  // themed explosions (both local and from the network)
+  boomFlair(kind, pos) {
+    if (kind === 'turkey') { this.effects.feathers(pos, 30); sfx.gobble(pos); }
+    if (kind === 'present') { this.effects.confetti(pos.clone().add(_a.set(0, 0.4, 0)), 90, null, 9); sfx.partyHorn(pos); this.effects.popup('SURPRISE!', pos.clone().add(_a.set(0, 1.6, 0)), { size: 130, time: 1.2, top: '#ffffff', bottom: '#1fbf4a' }); }
+  }
+  // banana slip: backflip + slide whistle (the push/stun already went through combat.slip)
+  slipFx(t, pos, id) { this.slipLocal(t, pos); this.onWorldEvent('slip', { a: t.id, pos: pos.toArray().map((x) => +x.toFixed(2)), id }); }
+  slipLocal(t, pos) {
+    t.slipT = 1.0; sfx.slideWhistle(t === this.player ? null : t.chest(V()), true);
+    this.effects.popup('SLIPPED!', t.headPos(V()).add(_a.set(0, 0.9, 0)), { size: 130, time: 1.3, top: '#fff6a0', bottom: '#e0b000' });
+    if (t === this.player) { this.wobble = 1.0; this.hud.toast('🍌 You slipped on a banana peel!', 'warn'); }
+    if (t.isBot) this.botSay(t, 'slip', { killer: '' }, 0.5);
+  }
+  // bot trash talk: rate-limited, never in practice
+  botSay(a, kind, vars = {}, chance = 1) {
+    if (!a?.isBot || this.match?.mode.practice || Math.random() > chance) return;
+    if (this.time - (this.lastChat ?? -99) < 2.0) return;
+    const line = botLine(kind, vars); if (!line) return;
+    this.lastChat = this.time; this.hud.chat(a.name, a.team, line);
+  }
+
   // killstreak: count for everyone (MVP awards), but only the killer's owner applies the heal
   addStreak(k) {
     const n = ++k.streak; k.stats.bestStreak = Math.max(k.stats.bestStreak, n);
@@ -288,6 +350,7 @@ export class Game {
       const gained = Math.round(k.hp - hp0), armor = Math.round(k.armor - ar0);
       if (k === this.player) { this.hud.streak(n, named?.name, gained, armor); sfx.heal(); this.ach('bestStreak', n); }
     }
+    if (named && n >= 5) { const b = this.actors.find((x) => x.isBot && x !== k && this.hostile(x, k)); if (b) this.botSay(b, 'streak', { name: k.name }, 0.8); }
     if (named && n >= 5 && k !== this.player) this.hud.toast(`${k.name} is on a ${named.name}! (${n} kills)`, k.team === this.player?.team && this.match?.mode.teams ? 'gold' : 'warn');
   }
   // per-tick counters for the end-of-match awards (works for remote actors too: uses their interpolated position)
@@ -297,6 +360,7 @@ export class Game {
     const d = Math.hypot(a.pos.x - w.lx, a.pos.z - w.lz); const turned = Math.abs(a.yaw - w.lyaw) > 0.003;
     if (d < 6 * dt + 0.5) w.dist += d;   // ignore teleports / respawns
     if (d < 0.01 && !turned && !(this.time - (a.lastShotT ?? -9) < 0.5)) { w.still += dt; if (w.still > 2) w.afk += dt; } else w.still = 0;
+    if (a === this.player && w.still > 20 && this.time - (this.afkHeckle ?? -99) > 35) { this.afkHeckle = this.time; const b = this.actors.find((x) => x.isBot); if (b) { this.lastChat = -99; this.botSay(b, 'afk', { name: a.name }, 1); } }
     if ((a === this.player || this.owns(a)) ? a.slideT > 0 : a.netLow) w.slide += dt;
     if (a.pos.y - w.ly > 0.02 || (this.owns(a) && !a.onGround)) w.air += dt;
     w.lx = a.pos.x; w.lz = a.pos.z; w.ly = a.pos.y; w.lyaw = a.yaw;
@@ -313,6 +377,9 @@ export class Game {
       else if (info.explosive || w.splash) { coins += 5; tags.push('EXPLOSIVE'); }
       if (info.melee) { coins += 5; tags.push('MELEE'); }
       if (info.emotional) tags.push('EMOTIONAL DAMAGE');
+      if (info.revenge) { coins += 10; tags.push('REVENGE!'); }
+      if (info.dom >= 3) tags.push(`DOMINATING ×${info.dom}`);
+      if (info.yeet) tags.push('YEET');
       profile.addCoins(coins); this.killCoins += coins;
     }
     this.killCount++;
@@ -322,7 +389,7 @@ export class Game {
       if (info.head) this.ach('headshots');
       if (info.melee || (w.kind === 'melee' && !info.thrown)) this.ach('meleeKills');
       if (info.explosive || w.splash || (w.kind === 'throwable' && w.dmg)) this.ach('explosiveKills');
-      const per = { snowball_launcher: 'snowKills', paintball_gun: 'paintKills', water_gun: 'waterKills', tennis_launcher: 'tennisKills', spear: 'spearKills' }[bid];
+      const per = { snowball_launcher: 'snowKills', paintball_gun: 'paintKills', water_gun: 'waterKills', tennis_launcher: 'tennisKills', spear: 'spearKills', rubber_chicken: 'chickenKills', chainsaw: 'sawKills', turkey_launcher: 'turkeyKills', present_launcher: 'presentKills', confetti_cannon: 'confettiKills' }[bid];
       if (per) this.ach(per);
       if (info.trick) this.ach('trickKills');
       if (bid === 'spear' && info.thrown && (info.dist || 0) >= 30) this.ach('javelinKills');
@@ -372,7 +439,7 @@ export class Game {
     return a.eye(out).addScaledVector(a.aimDir(_a), 0.6);
   }
   onFired(a, def, muzzle, dir) {
-    a.lastShotT = this.time;
+    a.lastShotT = this.time; if (['bullet', 'pellet', 'projectile'].includes(def.kind)) a.aw.shots += def.pellets || (def.triple ? 3 : 1);
     if (a === this.player) {
       this.vm.onFire(def);
       if (def.recoil) { a.pitch += def.recoil * (a.ads ? 0.45 : 0.7); a.yaw += (Math.random() - 0.5) * def.recoil * 0.4; }
@@ -387,7 +454,7 @@ export class Game {
   onProjectile(owner, p) { if (this.owns(owner) && this.net.connected) this.net.event({ t: 'proj', id: p.id, a: owner.id, w: p.def.id, k: p.kind, p: p.pos.toArray(), v: p.vel.toArray(), f: p.fuse }); }
   onWorldEvent(type, d) {
     if (!this.net.connected) return;
-    if (type === 'boom' || type === 'smoke' || type === 'flash' || type === 'fire' || type === 'ring' || type === 'arc' || type === 'shock' || type === 'vortex' || type === 'barricade' || type === 'barricade_down' || type === 'sentry' || type === 'sentry_down') this.net.event({ t: 'w:' + type, ...d });
+    if (type === 'boom' || type === 'smoke' || type === 'flash' || type === 'fire' || type === 'ring' || type === 'arc' || type === 'shock' || type === 'vortex' || type === 'barricade' || type === 'barricade_down' || type === 'sentry' || type === 'sentry_down' || type === 'slip' || type === 'bawk') this.net.event({ t: 'w:' + type, ...d });
   }
   onGrapple(a) { if (this.owns(a) && this.net.connected) { const g = a.grapple; this.net.event({ t: 'rope', a: a.id, to: g.to.toArray().map((x) => +x.toFixed(2)), act: g.actor?.id || null, fly: g.fly }); a.ropeSent = true; } }
   onSentryShot(s, o, dir, muzzle) { if (this.net.connected) this.net.event({ t: 'shot', a: s.owner.id, w: 'sentry_turret', o: o.toArray().map((x) => +x.toFixed(2)), d: [dir.toArray().map((x) => +x.toFixed(4))], m: muzzle.toArray().map((x) => +x.toFixed(2)) }); }
@@ -414,15 +481,17 @@ export class Game {
   onRemoteEvent(e) {
     const A = (id) => this.actors.find((x) => x.id === id);
     switch (e.t) {
-      case 'shot': { const a = A(e.a); const d = WEAPON_BY_ID[e.w]; if (!a || !d) return; const o = new THREE.Vector3(...e.o); const muzzle = e.m ? new THREE.Vector3(...e.m) : this.muzzleWorld(a, V());
+      case 'shot': { const a = A(e.a); const d = WEAPON_BY_ID[e.w]; if (!a || !d) return; a.aw.shots += e.d?.length || 1; if (d.confetti) { this.effects.confetti(this.muzzleWorld(a, V()), 26, new THREE.Vector3(...e.d[0]), 9); sfx.partyHorn(a.chest(V())); } const o = new THREE.Vector3(...e.o); const muzzle = e.m ? new THREE.Vector3(...e.m) : this.muzzleWorld(a, V());
         if (e.m) { for (const dir of e.d) this.combat.addBullet(a, d, o, new THREE.Vector3(...dir), muzzle, true); this.effects.muzzle(muzzle, new THREE.Vector3(...e.d[0]), 0.6); sfx.shot('turret', o, 0.7); break; } for (const dir of e.d) this.combat.addBullet(a, d, o, new THREE.Vector3(...dir), muzzle, true); a.lastShotT = this.time; this.effects.muzzle(muzzle, new THREE.Vector3(...e.d[0]), 1); sfx.shot({ assault_rifle: 'rifle', ak47: 'rifle', lmg: 'rifle', burst_rifle: 'rifle', heavy_sniper: 'heavy', dmr: 'heavy', revolver: 'heavy', smg: 'smg', sawed_off: 'shotgun', tactical_shotgun: 'shotgun' }[e.w] || 'pistol', a.chest(V())); break; }
-      case 'fx': { const a = A(e.a); if (!a) return; a.lastShotT = this.time; const fd = WEAPON_BY_ID[e.w]; if (fd?.kind === 'flame') for (let i = 0; i < 4; i++) this.effects.flame(this.muzzleWorld(a, V()), a.aimDir(V()).multiplyScalar(16), 1, !!fd.cryo); break; }
+      case 'fx': { const a = A(e.a); if (!a) return; a.lastShotT = this.time; if (e.w === 'chainsaw') sfx.saw(a.chest(V()), true); const fd = WEAPON_BY_ID[e.w]; if (fd?.kind === 'flame') for (let i = 0; i < 4; i++) this.effects.flame(this.muzzleWorld(a, V()), a.aimDir(V()).multiplyScalar(16), 1, !!fd.cryo); break; }
       case 'push': { const t = A(e.target); if (t && this.owns(t)) this.push(t, new THREE.Vector3(...e.v), e.air); break; }
       case 'chill': { const t = A(e.target); if (t && this.owns(t) && t.alive) this.chill(t, e.c, e.dt); break; }
       case 'w:shock': { const p = new THREE.Vector3(...e.pos); this.effects.shockwave(p, e.r); sfx.explosion(p, 0.7); this.shakeFrom(p, e.r * 0.7); const pr = this.combat.projs.find((q) => q.id === e.id); if (pr) { this.scene.remove(pr.mesh); this.combat.projs.splice(this.combat.projs.indexOf(pr), 1); } break; }
       case 'w:vortex': { this.combat.makeVortex(new THREE.Vector3(...e.pos), WEAPON_BY_ID.black_hole.vortex, A(e.owner), { id: e.id }); const pr = this.combat.projs.find((q) => q.id === e.id); if (pr) { this.scene.remove(pr.mesh); this.combat.projs.splice(this.combat.projs.indexOf(pr), 1); } break; }
       case 'proj': { const a = A(e.a); const d = WEAPON_BY_ID[e.w]; if (!a || !d) return; const pr = this.combat.spawnProj(a, d, e.k, new THREE.Vector3(...e.p), new THREE.Vector3(...e.v), { id: e.id, fuse: e.f, remote: true }); if (d.projScale) pr.mesh.scale.setScalar(d.projScale); break; }
-      case 'w:boom': { const p = new THREE.Vector3(...e.pos); this.effects.explosion(p, e.r); sfx.explosion(p, e.r / 4.5); this.shakeFrom(p, e.r); const pr = this.combat.projs.find((q) => q.id === e.id); if (pr) { this.scene.remove(pr.mesh); this.combat.projs.splice(this.combat.projs.indexOf(pr), 1); } break; }
+      case 'w:slip': { const t = A(e.a); if (t) this.slipLocal(t, new THREE.Vector3(...e.pos)); const pr = this.combat.projs.find((q) => q.id === e.id); if (pr) { this.scene.remove(pr.mesh); this.combat.projs.splice(this.combat.projs.indexOf(pr), 1); } break; }
+      case 'w:bawk': { const a = A(e.a); if (a) { sfx.bawk(a.chest(V())); this.effects.popup('BAWK!', a.headPos(V()).add(_a.set(0, 0.8, 0)), { size: 140, time: 1.1 }); } break; }
+      case 'w:boom': { const p = new THREE.Vector3(...e.pos); this.effects.explosion(p, e.r); sfx.explosion(p, e.r / 4.5); this.shakeFrom(p, e.r); this.boomFlair(e.k, p); const pr = this.combat.projs.find((q) => q.id === e.id); if (pr) { this.scene.remove(pr.mesh); this.combat.projs.splice(this.combat.projs.indexOf(pr), 1); } break; }
       case 'w:smoke': this.combat.makeSmoke(new THREE.Vector3(...e.pos), WEAPON_BY_ID.smoke_grenade.smoke); break;
       case 'w:flash': this.effects.flashBurst(new THREE.Vector3(...e.pos)); break;
       case 'w:fire': this.combat.fires.push({ pos: new THREE.Vector3(...e.pos), radius: e.radius, time: e.time, t: 0, remote: true, acc: new Map() }); this.effects.firePool(this.combat.fires[this.combat.fires.length - 1]); break;
@@ -435,7 +504,7 @@ export class Game {
       case 'rope': { const a = A(e.a); if (!a || this.owns(a)) return; a.netRope = e.to ? { to: new THREE.Vector3(...e.to), actor: e.act ? A(e.act) : null, t: 0, fly: e.fly || 0.1, life: 2.6 } : null; break; }
       case 'w:barricade_down': { const b = this.combat.barricades.find((x) => x.id === e.id); if (b) this.combat.destroyBarricade(b); break; }
       case 'hit': { const t = A(e.target); if (t && this.owns(t)) this.applyDamage(t, e.amount, { attacker: A(e.attacker), weapon: e.weapon, head: e.head, explosive: e.explosive, fire: e.fire, emotional: e.emotional, melee: e.melee, paint: e.paint, pos: e.pos }); break; }
-      case 'kill': { const t = A(e.victim); if (!t || this.owns(t)) return; if (t.alive) { t.alive = false; t.deathT = 0; t.stats.deaths++; t.streak = 0; const k = A(e.killer); if (k && k !== t) { k.stats.kills++; this.addStreak(k); } this.match.onKill(t, k); this.hud.killfeed(k, t, e.weapon, e.head); if (k === this.player) { sfx.kill(); this.hud.hitmarker(e.head, true); profile.addWeaponKill(baseId(e.weapon)); if (e.melee) k.stats.meleeKills++; if (e.explosive) k.stats.explosiveKills++; this.awardKill(t, { weapon: e.weapon, head: e.head, melee: e.melee, explosive: e.explosive }); } } break; }
+      case 'kill': { const t = A(e.victim); if (!t || this.owns(t)) return; if (t.alive) { t.alive = false; t.deathT = 0; t.stats.deaths++; t.streak = 0; const k = A(e.killer); if (k && k !== t) { k.stats.kills++; this.addStreak(k); } this.match.onKill(t, k); this.hud.killfeed(k, t, e.weapon, e.head); const kinfo = { weapon: e.weapon, head: e.head, melee: e.melee, explosive: e.explosive, yeet: !!e.yeet }; this.killFlair(t, k, kinfo); if (k === this.player) { sfx.kill(); this.hud.hitmarker(e.head, true); profile.addWeaponKill(baseId(e.weapon)); if (e.melee) k.stats.meleeKills++; if (e.explosive) k.stats.explosiveKills++; this.awardKill(t, kinfo); } } break; }
       case 'blind': { const t = A(e.target); if (t && this.owns(t)) this.blind(t, e.time); break; }
       case 'stun': { const t = A(e.target); if (t && this.owns(t)) this.stun(t, e.time); break; }
       case 'spawn': { const a = A(e.id); if (a && !this.owns(a)) { a.alive = true; a.hp = BASE_HP; a.pos.set(...e.pos); a.net = { pos: a.pos.clone(), yaw: a.yaw, pitch: 0, t: this.time }; } break; }
@@ -680,15 +749,25 @@ export class Game {
     if (a.rigWeapon !== wid) { attachWeapon(rig, wid, a.skins?.[wid]); a.rigWeapon = wid; a.rigThermal = null; }
     if (!a.alive) {
       a.deathT = (a.deathT || 0) + dt;
+      const y = a.yeet;
+      if (y) {   // YEET: ballistic flight with a ragdoll spin, then a thud
+        if (!y.landed) { y.v.y -= 22 * dt; y.p.addScaledVector(y.v, dt); if (y.p.y <= y.floor && y.v.y < 0) { y.p.y = y.floor; y.landed = true; sfx.thud(y.p); } }
+        rig.position.copy(y.p); if (!y.landed) rig.rotation.set(rig.rotation.x + y.spin * dt, rig.rotation.y + y.spin * 0.4 * dt, rig.rotation.z + y.spin * 0.6 * dt); else rig.rotation.set(-Math.PI / 2, rig.rotation.y, 0);
+        if (a.deathT > 3.2) rig.visible = false;
+        return;
+      }
       rig.rotation.x = Math.max(-Math.PI / 2, -a.deathT * 5) ; rig.position.y = a.pos.y + Math.min(0.25, a.deathT);
       if (a.deathT > 3) rig.visible = false;
       return;
     }
+    a.yeet = null;
     rig.visible = true; rig.position.copy(a.pos); rig.rotation.set(0, a.yaw, 0, 'XYZ');
     if (a.low > 0.02) { rig.position.y -= a.low * 0.55; rig.rotation.set(a.low * 0.5, a.yaw, 0, 'YXZ'); }
     const spd = a.isRemote || !this.owns(a) ? (a.netSpeed || 0) : Math.hypot(a.vel.x, a.vel.z);
     a.animPhase += dt * spd * 1.6;
     const wh = rig.userData.wheel; if (wh && a.ws) { const fired = Math.max(0, a.ws.def.mag - a.ws.mag); wh.rotation.z = -fired * Math.PI / 3; }
+    if (a.slipT > 0) { a.slipT -= dt; const k = 1 - Math.max(0, a.slipT) / 1.0; rig.rotation.set(-k * Math.PI * 2, a.yaw, Math.sin(k * 9) * 0.3, 'YXZ'); rig.position.y += Math.sin(k * Math.PI) * 0.6; }
+    if (a.sawing != null && this.time - a.sawing < 0.15) rig.position.x += (Math.random() - 0.5) * 0.03;
     poseSoldier(rig, { speed: spd, phase: a.animPhase, aimPitch: a.pitch, swing: a.ws?.swing || 0, firing: this.time - (a.lastShotT ?? -9) < 0.15 });
     // thermal highlight (enemies only, through smoke; walls still occlude)
     const hot = this.player.thermal.on && this.hostile(this.player, a);
@@ -716,7 +795,7 @@ export class Game {
     }
     const st = this.studio; st.holder.clear();
     const item = buildItem(id, { skin: opts.skin || null, holiday: opts.holiday });
-    const MELEE = ['spear', 'knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer'];
+    const MELEE = ['chainsaw', 'rubber_chicken', 'spear', 'knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer'];
     const g = new THREE.Group(); g.add(item);
     if (MELEE.includes(id)) item.rotation.set(0, 0, -Math.PI / 2 + 0.12);
     if (id === 'slippers') item.rotation.set(0.9, 0.5, 0);

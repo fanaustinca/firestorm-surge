@@ -4,7 +4,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { buildItem } from './models.js';
 
 let r = null, scene, cam; const cache = new Map();
-const MELEE_UP = ['spear', 'knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer'];
+const MELEE_UP = ['chainsaw', 'rubber_chicken', 'spear', 'knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer'];
 
 function init() {
   const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 144;
@@ -26,7 +26,7 @@ export function itemIcon(id, skin = null) {
     const obj = buildItem(id, { skin });
     const g = new THREE.Group(); g.add(obj);
     if (MELEE_UP.includes(id)) obj.rotation.set(0, 0, -Math.PI / 2 + 0.25);
-    else if (['frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb', 'medkit', 'ammo_pack', 'adrenaline', 'thermal_goggles', 'blast_vest', 'spring_boots', 'tactical_gloves', 'fists', 'bandolier', 'armor_plate', 'barricade', 'shockwave_grenade', 'black_hole', 'grapple_hook', 'sentry_turret', 'shurikens', 'slippers'].includes(id)) obj.rotation.set(0.35, -0.6, 0);
+    else if (['frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb', 'medkit', 'ammo_pack', 'adrenaline', 'thermal_goggles', 'blast_vest', 'spring_boots', 'tactical_gloves', 'fists', 'bandolier', 'armor_plate', 'barricade', 'shockwave_grenade', 'black_hole', 'grapple_hook', 'sentry_turret', 'shurikens', 'slippers', 'banana_peel'].includes(id)) obj.rotation.set(0.35, -0.6, 0);
     else obj.rotation.set(0, Math.PI / 2, 0); // side view, barrel to the right... (flip so muzzle faces left→right)
     if (!MELEE_UP.includes(id) && obj.rotation.y === Math.PI / 2) obj.rotation.y = -Math.PI / 2;
     scene.add(g);

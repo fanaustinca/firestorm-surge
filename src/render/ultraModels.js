@@ -301,7 +301,31 @@ function tennis_launcher_ultra(m, opt) {
   return g;
 }
 
+function turkey_launcher_ultra(m, opt) {
+  const g = base('turkey_launcher', m, opt);
+  for (const sx of [-1, 1]) { P(g, cylZ(0.05, 0.045, 0.3, 20, true), m.gunmetal, sx * 0.1, 0.03, -0.36); P(g, torus(0.05, 0.006, 20), NEON(), sx * 0.1, 0.03, -0.51); }
+  emblem(g, 0.06, -0.05);
+  return g;
+}
+function present_launcher_ultra(m, opt) {
+  const g = base('present_launcher', m, opt);
+  const sack = std({ color: 0xb02020, roughness: 0.85 });
+  P(g, sphere(0.11, 18, 14), sack, 0, 0.12, 0.12).scale.set(1, 1.1, 0.9);                       // Santa's sack
+  P(g, cylY(0.03, 0.05, 0.05, 14), std({ color: 0xf4f4f4, roughness: 0.9 }), 0, 0.24, 0.12);
+  for (const sx of [-1, 1]) P(g, rbox(0.1, 0.1, 0.24, 0.01), m.gunmetal, sx * 0.11, 0.06, -0.36);
+  emblem(g, 0.08, -0.05);
+  return g;
+}
+function confetti_cannon_ultra(m, opt) {
+  const g = base('confetti_cannon', m, opt);
+  for (let i = 0; i < 3; i++) P(g, torus(0.09 - i * 0.012, 0.007, 26), NEON(), 0, 0.04, -0.5 + i * 0.06);
+  P(g, new THREE.ConeGeometry(0.05, 0.13, 16), PINK(), 0, 0.2, 0.12);
+  emblem(g, 0.05, -0.05);
+  return g;
+}
+
 export const ULTRA_BUILDERS = {
+  turkey_launcher_ultra, present_launcher_ultra, confetti_cannon_ultra,
   snowball_launcher_ultra, paintball_gun_ultra, water_gun_ultra, tennis_launcher_ultra,
   assault_rifle_ultra, ak47_ultra, dmr_ultra, rocket_launcher_ultra, burst_rifle_ultra, lmg_ultra,
   heavy_sniper_ultra, flamethrower_ultra, grenade_launcher_ultra, mortar_ultra,

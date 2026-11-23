@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { makeMaterials, P, rbox, cylY, cylZ, sphere, torus, latheZ, shadowAll } from './modelKit.js';
-import { GUN_BUILDERS } from './gunModels.js';
-import { GEAR_BUILDERS, starGeo, slipperMesh, glove } from './gearModels.js';
+import { GUN_BUILDERS, roastTurkey, giftBox } from './gunModels.js';
+import { GEAR_BUILDERS, starGeo, slipperMesh, glove, bananaPeel } from './gearModels.js';
 import { ULTRA_BUILDERS } from './ultraModels.js';
 import { HOLIDAY_SKINS } from '../data/weapons.js';
 
@@ -64,6 +64,9 @@ export function projectileMesh(kind) {
       case 'snowball': { const sm = new THREE.MeshStandardMaterial({ color: 0xf6f9fc, roughness: 0.9 }); P(g, sphere(0.075, 14, 10), sm); for (let i = 0; i < 4; i++) P(g, sphere(0.03, 8, 6), sm, Math.cos(i * 1.6) * 0.06, Math.sin(i * 2.3) * 0.05, Math.sin(i * 1.6) * 0.06); break; }
       case 'paintball': P(g, sphere(0.022, 12, 8), new THREE.MeshStandardMaterial({ color: 0xff2d6f, roughness: 0.2 })); P(g, torus(0.022, 0.003, 14), m.white); break;
       case 'tennis': { P(g, sphere(0.034, 16, 12), new THREE.MeshStandardMaterial({ color: 0xd8f040, roughness: 0.95 })); const seam = new THREE.MeshStandardMaterial({ color: 0xf4f4f4, roughness: 0.8 }); P(g, torus(0.034, 0.0025, 20), seam, 0, 0, 0, 0.6, 0, 0); P(g, torus(0.034, 0.0025, 20), seam, 0, 0, 0, -0.6, Math.PI / 2, 0); break; }
+      case 'turkey': g.add(roastTurkey(1)); break;
+      case 'present': g.add(giftBox(1.4, [0xd02a2a, 0x2a6ad0, 0x1f9a4a, 0xf0c020][(Math.random() * 4) | 0])); break;
+      case 'banana': { const b = bananaPeel(1); b.scale.setScalar(1.6); g.add(b); break; }
       case 'spear': { const sp = buildItem('spear'); sp.rotation.x = -Math.PI / 2; sp.position.z = 0.25; g.add(sp); break; }
       case 'concussion': g.add(buildItem('shockwave_grenade')); break;
       case 'singularity': g.add(buildItem('black_hole')); break;
@@ -198,7 +201,7 @@ export function poseSoldier(rig, s) {
   const spin = rig.userData.spin; if (spin) spin.rotation.z += s.firing ? 0.35 : 0;
 }
 
-const HAND_ITEMS = ['spear', 'knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer', 'frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb', 'land_mine', 'shurikens', 'slippers', 'medkit', 'ammo_pack', 'armor_plate', 'adrenaline', 'barricade'];
+const HAND_ITEMS = ['chainsaw', 'rubber_chicken', 'banana_peel', 'spear', 'knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer', 'frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb', 'land_mine', 'shurikens', 'slippers', 'medkit', 'ammo_pack', 'armor_plate', 'adrenaline', 'barricade'];
 
 // Attach a held item. Guns sit in a chest mount that follows the aim (arms IK onto grip + foregrip);
 // melee/throwables/usables are held in the right hand.

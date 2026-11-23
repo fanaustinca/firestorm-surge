@@ -26,20 +26,20 @@ try {
   const menu = await page.evaluate(() => ({ play: !!document.querySelector('#play'), dev: typeof DEV.inspectGun === 'function', maps: document.querySelectorAll('[data-map]').length, modes: [...document.querySelectorAll('[data-mode]')].map((b) => b.dataset.mode), ver: document.querySelector('.logo .ver')?.textContent }));
   check('Menu: mode-only selection (no map picker) + version tag', menu.play && menu.dev && menu.maps === 0 && menu.modes.includes('practice') && menu.modes.length === 5 && /^v\d+\.\d+\.\d+$/.test(menu.ver || ''), `${menu.modes.join(',')} · ${menu.ver}`);
   const SPEC_IDS = ['assault_rifle', 'ak47', 'dmr', 'rocket_launcher', 'burst_rifle', 'lmg', 'heavy_sniper', 'flamethrower', 'grenade_launcher', 'mortar',
-    'volt_rail', 'arc_caster', 'ricochet_disc', 'cryo_sprayer', 'harpoon_gun', 'snowball_launcher', 'paintball_gun', 'water_gun', 'tennis_launcher',
+    'volt_rail', 'arc_caster', 'ricochet_disc', 'cryo_sprayer', 'harpoon_gun', 'snowball_launcher', 'paintball_gun', 'water_gun', 'tennis_launcher', 'turkey_launcher', 'present_launcher', 'confetti_cannon',
     'pistol', 'smg', 'crossbow', 'burst_pistol', 'revolver', 'sawed_off', 'tactical_shotgun', 'taser', 'pocket_rocket',
-    'fists', 'knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer', 'shurikens', 'slippers', 'grapple_hook', 'spear',
-    'frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb', 'land_mine', 'medkit', 'ammo_pack', 'armor_plate', 'adrenaline', 'barricade', 'shockwave_grenade', 'black_hole', 'sentry_turret',
+    'fists', 'knife', 'scythe', 'bat', 'karambit', 'katana', 'sledgehammer', 'shurikens', 'slippers', 'grapple_hook', 'spear', 'chainsaw', 'rubber_chicken',
+    'frag', 'smoke_grenade', 'molotov', 'flashbang', 'sticky_bomb', 'land_mine', 'banana_peel', 'medkit', 'ammo_pack', 'armor_plate', 'adrenaline', 'barricade', 'shockwave_grenade', 'black_hole', 'sentry_turret',
     'tactical_gloves', 'spring_boots', 'bandolier', 'blast_vest', 'thermal_goggles'];
   const have = await page.evaluate(() => DEV.list().map((x) => x.split(': ')[1]));
   const missing = SPEC_IDS.filter((x) => !have.includes(x));
-  check('Every item exists (58 items incl. 4 fun guns + Spear)', missing.length === 0 && have.length === SPEC_IDS.length, missing.length ? 'missing ' + missing : `${have.length} entries`);
+  check('Every item exists (64 items incl. fun + seasonal guns, Spear, Chainsaw, Chicken, Banana)', missing.length === 0 && have.length === SPEC_IDS.length, missing.length ? 'missing ' + missing : `${have.length} entries`);
   const meshes = await page.evaluate((ids) => ids.map((id) => { try { DEV.inspectGun(id); let n = 0; DEV.game.studio.holder.traverse((o) => { if (o.isMesh) n++; }); return [id, n]; } catch (e) { return [id, -1, e.message]; } }), SPEC_IDS);
   const thin = meshes.filter(([, n]) => n < 5);
   check('Every item mesh are multi-part (≥5 meshes each)', thin.length === 0, thin.length ? JSON.stringify(thin) : `min ${Math.min(...meshes.map((m) => m[1]))} meshes`);
   const ultras = await page.evaluate(() => DEV.ultras().map((id) => { DEV.inspectGun(id); let n = 0, glow = 0; DEV.game.studio.holder.traverse((o) => { if (o.isMesh) { n++; if (o.material.emissiveIntensity > 1.5) glow++; } }); return [id, n, glow]; }));
   const baseCounts = await page.evaluate(() => Object.fromEntries(DEV.ultras().map((u) => { const id = u.replace('_ultra', ''); DEV.inspectGun(id); let n = 0; DEV.game.studio.holder.traverse((o) => { if (o.isMesh) n++; }); return [id, n]; })));
-  check('Every main firearm has a distinct ULTRA model in standard colours (no neon glow)', ultras.length === 19 && ultras.every(([id, n, gl]) => n >= 10 && gl <= 2 && n !== baseCounts[id.replace('_ultra', '')]), ultras.map(([i, n, gl]) => `${i.replace('_ultra', '')}:${n}/${gl}`).join(' '));
+  check('Every main firearm has a distinct ULTRA model in standard colours (no neon glow)', ultras.length === 22 && ultras.every(([id, n, gl]) => n >= 10 && gl <= 2 && n !== baseCounts[id.replace('_ultra', '')]), ultras.map(([i, n, gl]) => `${i.replace('_ultra', '')}:${n}/${gl}`).join(' '));
   const spinners = await page.evaluate(() => { DEV.inspectGun('rocket_launcher_ultra'); const h = DEV.game.studio.holder; const wheel = h.getObjectByName('wheel'); const rockets = [0, 1, 2, 3, 4, 5].filter((i) => wheel?.getObjectByName('rk' + i)).length; DEV.inspectGun('lmg_ultra'); let barrels = 0; DEV.game.studio.holder.getObjectByName('spin')?.traverse((o) => { if (o.isMesh && o.geometry.parameters?.height > 0.6) barrels++; }); return { wheel: !!wheel, rockets, barrels, mag: DEV.weapon('rocket_launcher_ultra').mag }; });
   check('Ultra rocket launcher: single barrel fed by a 6-rocket revolving cylinder; Ultra LMG has 6 rotating barrels', spinners.wheel && spinners.rockets === 6 && spinners.mag === 6 && spinners.barrels === 6, JSON.stringify(spinners));
   const ultraStats = await page.evaluate(() => { const W = DEV.game.constructor && null; void W; const by = (id) => DEV.game.player ? null : null; void by; return null; });
@@ -343,6 +343,62 @@ try {
   });
   check('Out-of-combat regen: nothing for 5 s after a hit, then slow heal', v27.regen.early === 60 && v27.regen.later > 65 && v27.regen.later < 90, JSON.stringify(v27.regen));
   check('Killstreak rewards heal: 3-kill streak = +50 HP +25 armour, banner, streak resets on death', v27.streak.n === 3 && v27.streak.hp === 90 && v27.streak.armor === 25 && /KILLING SPREE/.test(v27.streak.banner) && v27.streak.reset === 0, JSON.stringify(v27.streak));
+  // ───────── v2.8: silly weapons + comedy ─────────
+  const v28 = await page.evaluate(() => {
+    const g = DEV.game; const out = {}; const god0 = g.god;
+    DEV.loadMap('cargo_yard', 'ffa'); g.timeScale = 0; DEV.advance(3.3); DEV.clearBots(); g.god = true; const P = g.player;
+    const bot = (id) => g.actors.find((x) => x.id === id); const V3 = (x, y, z) => new DEV.THREE.Vector3(x, y, z);
+    DEV.teleport(-12, 0, 28, -Math.PI / 2); DEV.advance(0.1);
+    // chainsaw: hold to cut
+    let b = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-10.4, 0, 28] }); bot(b).lastHurt = g.time; DEV.equip(3, 'chainsaw'); DEV.select(3); DEV.advance(0.7);
+    let h = bot(b).hp + bot(b).armor; DEV.aimAt(b, 'body'); DEV.input({ fire: true }); DEV.advance(0.5); DEV.input(null); out.saw = { dmg: Math.round(h - bot(b).hp - bot(b).armor) }; DEV.clearBots();
+    DEV.teleport(-12, 0, 28, -Math.PI / 2); DEV.advance(0.3); const x0 = P.pos.x; DEV.input({ altPressed: true }); g.fixedUpdate(1 / 60); DEV.input(null); DEV.advance(0.6); out.saw.lunge = +(P.pos.x - x0).toFixed(2);
+    // rubber chicken: bonk knockback + BAWK stun
+    DEV.teleport(-12, 0, 28, -Math.PI / 2); DEV.advance(0.2); b = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-10.3, 0, 28] }); DEV.equip(3, 'rubber_chicken'); DEV.select(3); DEV.advance(0.6);
+    const p0 = bot(b).pos.clone(); DEV.aimAt(b, 'body'); DEV.input({ fire: true, firePressed: true }); g.fixedUpdate(1 / 60); DEV.input(null); DEV.advance(0.5);
+    out.chicken = { pushed: +bot(b).pos.distanceTo(p0).toFixed(2) };
+    DEV.teleport(-12, 0, 28, -Math.PI / 2); bot(b).pos.set(-9.5, bot(b).pos.y, 28); DEV.advance(0.2); DEV.aimAt(b, 'body'); DEV.input({ altPressed: true }); g.fixedUpdate(1 / 60); DEV.input(null); out.chicken.stun = +bot(b).fx.stun.toFixed(2); DEV.clearBots();
+    // banana peel: whoever steps on it slips (stun + backflip)
+    b = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-4, 0, 28] }); h = bot(b).hp;
+    const bp = g.combat.spawnProj(P, DEV.weapon('banana_peel'), 'banana', V3(-4, 0.6, 28), V3(0, -2, 0), { fuse: Infinity }); DEV.advance(1.2);
+    out.banana = { landed: !!bp.landed, stun: +bot(b).fx.stun.toFixed(2), slip: (bot(b).slipT || 0) > 0 || bot(b).fx.stun > 0, dmg: h - bot(b).hp, gone: !g.combat.projs.includes(bp) }; DEV.clearBots();
+    // turkey + present launchers explode; confetti cannon blasts back
+    b = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-4, 0, 28] }); h = bot(b).hp;
+    g.combat.spawnProj(P, DEV.weapon('turkey_launcher'), 'turkey', V3(-8, 1.4, 28), V3(25, 0, 0)); DEV.advance(0.6); out.turkey = { dmg: Math.round(h - bot(b).hp), dead: !bot(b).alive }; DEV.clearBots();
+    b = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-4, 0, 28] }); h = bot(b).hp;
+    const pr = g.combat.spawnProj(P, DEV.weapon('present_launcher'), 'present', V3(-4.5, 2.5, 27), V3(0, -3, 0)); DEV.advance(0.5); const alive = g.combat.projs.includes(pr); DEV.advance(1.6);
+    out.present = { bouncedFirst: alive, dmg: Math.round(h - bot(b).hp) || (bot(b).alive ? 0 : 999) }; DEV.clearBots();
+    DEV.teleport(-12, 0, 28, -Math.PI / 2); DEV.advance(0.2); b = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-8, 0, 28] }); h = bot(b).hp; const c0 = bot(b).pos.clone();
+    DEV.equip(1, 'confetti_cannon'); DEV.select(1); DEV.advance(0.6); DEV.aimAt(b, 'body'); DEV.input({ fire: true, firePressed: true }); g.fixedUpdate(1 / 60); DEV.input(null); DEV.advance(0.4);
+    out.confetti = { dmg: Math.round(h - bot(b).hp), pushed: +bot(b).pos.distanceTo(c0).toFixed(2) }; DEV.clearBots();
+    // YEET: chicken kill launches the body
+    b = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-6, 0, 28] }); const yb = bot(b); g.damage(yb, 999, { attacker: P, weapon: 'rubber_chicken', melee: true });
+    g.renderFrame(1 / 60); DEV.advance(0.3); for (let i = 0; i < 18; i++) g.renderFrame(1 / 60);
+    out.yeet = { flag: !!yb.yeet, up: yb.rig ? +(yb.rig.position.y - yb.pos.y).toFixed(2) : -1, banner: document.getElementById('killban').textContent.includes('YEET') }; DEV.clearBots();
+    // revenge: they kill you, you kill them back
+    g.god = false; b = DEV.spawnBot('ffa', 'pistol', { frozen: true, at: [-6, 0, 28] }); const rb = bot(b);
+    g.damage(P, 999, { attacker: rb, weapon: 'tennis_launcher' }); out.quip = document.getElementById('spectate') && g.deathQuip; g.hud.update(0.016); out.quipShown = document.querySelector('#spectate em.quip')?.textContent || '';
+    DEV.advance(4); rb.alive = true; rb.hp = 150; g.damage(rb, 999, { attacker: P, weapon: 'assault_rifle' }); out.revenge = document.getElementById('killban').textContent.includes('REVENGE');
+    g.lastChat = -99; g.botSay(rb, 'kill', { victim: 'Tester' }); out.chat = document.querySelector('#chat .cl:last-child')?.textContent || '';
+    out.chatName = rb.name; DEV.clearBots(); g.god = god0;
+    return out;
+  });
+  check('Chainsaw: hold LMB shreds (≥60 dmg in 0.5 s), RMB lunge dashes forward', v28.saw.dmg >= 60 && v28.saw.lunge > 2.5, JSON.stringify(v28.saw));
+  check('Rubber Chicken: squeaky bonk sends people flying, BAWK stuns', v28.chicken.pushed > 1.5 && v28.chicken.stun > 0.3, JSON.stringify(v28.chicken));
+  check('Banana Peel: lands, enemy who steps on it slips (stun + damage), peel is used up', v28.banana.landed && v28.banana.stun > 0.5 && v28.banana.dmg >= 10 && v28.banana.gone, JSON.stringify(v28.banana));
+  check('Turkey Launcher explodes on impact; Present Launcher bounces then blows up', v28.turkey.dmg >= 100 && v28.present.bouncedFirst && v28.present.dmg >= 80, JSON.stringify({ t: v28.turkey, p: v28.present }));
+  check('Confetti Cannon: 12-pellet party blast with knockback', v28.confetti.dmg >= 40 && v28.confetti.pushed > 0.8, JSON.stringify(v28.confetti));
+  check('YEET: knockback kills launch the body into the sky (+ banner tag)', v28.yeet.flag && v28.yeet.up > 1 && v28.yeet.banner, JSON.stringify(v28.yeet));
+  check('Death screen roast + REVENGE kill tag + bot trash talk in chat', !!v28.quipShown && v28.revenge && v28.chat.startsWith(v28.chatName + ':'), JSON.stringify({ q: v28.quipShown, r: v28.revenge, c: v28.chat }));
+  const fun = await page.evaluate(() => {
+    const mk = (id, o) => ({ id, name: id, team: 'ffa', isBot: true, stats: { kills: 0, deaths: 0, damage: 0, headshots: 0, bestStreak: 0, emotional: 0, ...o.stats }, aw: { afk: 0, dist: 0, slide: 0, taken: 0, air: 0, shots: 0, hits: 0, yeets: 0, slips: 0, revenge: 0, victims: {}, ...o.aw } });
+    const A = [mk('a', { stats: { kills: 12, damage: 1500 }, aw: { victims: { c: 6 }, yeets: 4 } }), mk('b', { stats: { kills: 1 }, aw: { shots: 200, hits: 12, dist: 400 } }), mk('c', { stats: { deaths: 8, damage: 300 }, aw: { slips: 3, afk: 40 } }), mk('d', { stats: { kills: 0, damage: 260 }, aw: { revenge: 0 } })];
+    const r = DEV.matchAwards(A); const nov = new Date(2026, 10, 15), jul = new Date(2026, 6, 1);
+    return { titles: r.awards.map((x) => x.title), n: r.awards.length, vend: r.awards.find((x) => x.id === 'vendetta')?.flavour, mvp: r.mvp.id,
+      season: [DEV.inSeason(DEV.weapon('turkey_launcher'), nov), DEV.inSeason(DEV.weapon('present_launcher'), nov), DEV.inSeason(DEV.weapon('confetti_cannon'), new Date(2027, 0, 3)), DEV.inSeason(DEV.weapon('turkey_launcher'), jul)] };
+  });
+  check('More funny awards: Stormtrooper, NASA Intern, Vendetta, LVP… (max 9, Most AFK first)', fun.titles[0] === 'MOST AFK' && fun.n <= 9 && fun.titles.includes('LEAST VALUABLE PLAYER') && fun.titles.some((t) => /STORMTROOPER|NASA|VENDETTA|BANANA|SO CLOSE|TOURIST/.test(t)) && /c$/.test(fun.vend || 'c') && fun.mvp === 'a', JSON.stringify(fun));
+  check('Seasonal guns: Turkey in November, Presents in December, Confetti over New Year, nothing off-season', fun.season.join() === 'true,false,true,false', fun.season.join());
   const keys = await page.evaluate(() => {
     const inp = DEV.game.input; inp.setBinds({ jump: 'KeyQ', thermal: 'KeyC' });
     inp.keys.add('KeyQ'); const jumpQ = inp.sample().jump; inp.keys.delete('KeyQ');

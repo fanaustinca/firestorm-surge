@@ -1,7 +1,7 @@
 // Tactical bot AI: 10 Hz brain (perception, state choice, A* on the nav grid) + per-tick control.
 // Behaviours: cover-seeking when hurt, smoke reaction, grenade/mortar dodging, loadout-aware ranges.
 import * as THREE from 'three';
-import { WEAPONS, bySlot, WEAPON_BY_ID } from '../data/weapons.js';
+import { WEAPONS, bySlot, WEAPON_BY_ID, inSeason } from '../data/weapons.js';
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const _a = V(), _b = V();
@@ -131,11 +131,17 @@ const ARCHETYPES = [
   { name: 'Pro Server', l: { 1: 'tennis_launcher', 2: 'smg', 3: 'bat', 4: 'sticky_bomb' }, range: [8, 28] },
   { name: 'Spartan', l: { 1: 'burst_rifle', 2: 'revolver', 3: 'spear', 4: 'frag', 6: 'spring_boots' }, range: [6, 22] },
   { name: 'Engineer', l: { 1: 'assault_rifle', 2: 'burst_pistol', 3: 'bat', 4: 'land_mine', 5: 'sentry_turret' }, range: [12, 30] },
+  { name: 'Lumberjack', l: { 1: 'ak47', 2: 'sawed_off', 3: 'chainsaw', 4: 'banana_peel' }, range: [3, 14], melee: true },
+  { name: 'Chicken Farmer', l: { 1: 'assault_rifle', 2: 'pistol', 3: 'rubber_chicken', 4: 'banana_peel' }, range: [4, 20] },
+  { name: 'Pilgrim', l: { 1: 'turkey_launcher', 2: 'revolver', 3: 'rubber_chicken', 4: 'frag' }, range: [10, 30] },
+  { name: 'Santa', l: { 1: 'present_launcher', 2: 'pistol', 3: 'chainsaw', 4: 'banana_peel' }, range: [8, 26] },
+  { name: 'Party Animal', l: { 1: 'confetti_cannon', 2: 'smg', 3: 'rubber_chicken', 4: 'flashbang' }, range: [3, 11] },
 ];
 export function botLoadout(index, forceWeapon) {
   const a = ARCHETYPES[index % ARCHETYPES.length];
   const l = { 1: a.l[1], 2: a.l[2], 3: a.l[3], 4: a.l[4], 5: a.l[5] || (index % 3 === 0 ? 'medkit' : index % 3 === 1 ? 'armor_plate' : null), 6: a.l[6] || null };
   let range = a.range;
+  if (!inSeason(WEAPON_BY_ID[l[1]])) { l[1] = 'grenade_launcher'; range = [10, 30]; }   // seasonal bots fall back off-season
   if (forceWeapon) { const w = WEAPON_BY_ID[forceWeapon]; if (w && w.slot <= 6) { l[w.slot] = forceWeapon; if (w.slot === 1) range = w.range ? [Math.min(8, w.range * 0.3), Math.min(60, w.range * 0.7)] : range; } }
   return { loadout: l, archetype: a.name, range, melee: !!a.melee || (forceWeapon && WEAPON_BY_ID[forceWeapon]?.kind === 'melee') };
 }
@@ -246,6 +252,7 @@ export class BotBrain {
     else if (pw.mag === 0 && pw.reloading > 0 && dist < 14 && sw?.mag > 0) slot = 2;   // quick-swap instead of reloading under fire
     else if (slot === 2 && sw && sw.mag === 0 && pw.mag > 0) slot = 1;
     else if (slot !== 2 || dist > 16) slot = 1;
+    if (wsOf(3)?.def.saw && tgt && visible && dist < 8 && this.T.swap) slot = 3;
     if (dist < 2.2 && wsOf(3)?.def.kind === 'melee' && pdef?.kind !== 'pellet' && pdef?.kind !== 'flame') slot = 3;
     // grapple hook: zip in on a visible enemy, then finish with the claw / shotgun
     const gh = wsOf(3)?.def.grapple;
@@ -453,6 +460,9 @@ export class BotBrain {
       const d = a.pos.distanceTo(tgt.pos);
       if ((this.info.melee && d < 12 && d > 3) || ((a.hp + a.armor) / a.maxHp < 0.4 && this.state === 'cover') || Math.random() < dt * 0.15) it.slide = true;
     }
+    // chainsaw: hold the trigger up close, rev-lunge in from mid range
+    if (ws?.def.saw && tgt && visible && a.drawT <= 0) { const d = a.pos.distanceTo(tgt.pos); it.fire = d < 3.0; it.firePressed = false; if (d > 4 && d < 9 && g.time >= (a.sawReady || 0) && Math.random() < dt * 2) it.altPressed = true; }
+    if (ws?.def.bawk && tgt && visible && a.pos.distanceTo(tgt.pos) < 5.5 && g.time >= (a.bawkReady || 0) && Math.random() < dt * 1.5) it.altPressed = true;
     if (ws?.def.ability && tgt && visible && a.pos.distanceTo(tgt.pos) > 5 && a.pos.distanceTo(tgt.pos) < 16 && a.fx.scytheCd <= 0) it.altPressed = true;
     return it;
   }

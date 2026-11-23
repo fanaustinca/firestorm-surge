@@ -448,6 +448,58 @@ export function spear(m) {
   return g;
 }
 
+// ───────── v2.8 silly melee / throwables ─────────
+export function chainsaw(m) {
+  const g = new THREE.Group();
+  const orange = std({ color: 0xff6a14, roughness: 0.45, metalness: 0.1 }); const bar = std({ color: 0xb8bec6, metalness: 0.9, roughness: 0.3 });
+  P(g, rbox(0.13, 0.24, 0.26, 0.04), orange, 0, 0.04, 0.04);                                   // engine housing around the grip
+  P(g, rbox(0.104, 0.06, 0.1, 0.01), m.darksteel, 0, -0.04, 0.03);
+  for (let i = 0; i < 6; i++) P(g, box(0.134, 0.01, 0.1), m.darksteel, 0, -0.02 + i * 0.03, 0.1);   // cooling fins
+  P(g, tube([[0, -0.08, -0.06], [0, -0.13, 0.0], [0, -0.1, 0.1], [0, -0.04, 0.12]], 0.012), m.rubber);   // rear handle
+  P(g, torus(0.07, 0.01, 18, PI), m.rubber, 0.0, 0.08, -0.02, 0, PI / 2, 0);                   // wrap-around front handle
+  P(g, cylX(0.02, 0.02, 0.02, 12), m.white, 0.06, 0.02, 0.06);                                  // pull-start
+  P(g, rbox(0.03, 0.46, 0.008, 0.012), bar, 0, 0.38, -0.04);                                     // guide bar (+Y)
+  P(g, cylZ(0.016, 0.016, 0.009, 14), bar, 0, 0.61, -0.04);
+  const chain = new THREE.Group(); chain.name = 'spin'; chain.position.set(0, 0.38, -0.04); g.add(chain);
+  for (let i = 0; i < 22; i++) { const t = i / 22; const side = i % 2 ? 1 : -1; const y = -0.22 + (t * 2 % 1) * 0.46; const x = (t < 0.5 ? 1 : -1) * 0.018; P(chain, new THREE.ConeGeometry(0.006, 0.014, 3), m.darksteel, x, y, side * 0.002, 0, 0, x > 0 ? -PI / 2 : PI / 2); }
+  P(g, rbox(0.06, 0.015, 0.03, 0.005), m.yellow, 0, 0.13, -0.04);                              // chain guard
+  P(g, cylY(0.012, 0.012, 0.05, 10), m.darksteel, 0.04, 0.14, 0.06);                           // exhaust
+  marker(g, 'tip', 0, 0.62, -0.04); marker(g, 'muzzle', 0, 0.4, -0.06);
+  return g;
+}
+export function rubber_chicken(m) {
+  const g = new THREE.Group();
+  const rub = std({ color: 0xf4e06a, roughness: 0.55 }); const red = std({ color: 0xe02a1a, roughness: 0.5 }); const beak = std({ color: 0xff9a1a, roughness: 0.5 });
+  for (const sx of [-1, 1]) { P(g, cylY(0.008, 0.008, 0.12, 8), beak, sx * 0.015, -0.02, 0); for (let k = -1; k <= 1; k++) P(g, rbox(0.006, 0.006, 0.035, 0.002), beak, sx * 0.015 + k * 0.01, -0.085, -0.01, 0, k * 0.4, 0); }   // legs (the handle)
+  P(g, sphere(0.06, 16, 12), rub, 0, 0.1, 0).scale.set(1, 1.5, 0.95);                          // plucked body
+  for (const sx of [-1, 1]) P(g, sphere(0.03, 10, 8), rub, sx * 0.055, 0.12, 0.0).scale.set(0.5, 1.4, 1);   // flappy wings
+  P(g, cylY(0.022, 0.03, 0.26, 12), rub, 0, 0.3, 0, 0.12, 0, 0);                                // long sad neck
+  const head = new THREE.Group(); head.position.set(0, 0.45, -0.02); g.add(head);
+  P(head, sphere(0.038, 14, 10), rub);
+  P(head, new THREE.ConeGeometry(0.016, 0.06, 10).rotateX(-PI / 2), beak, 0, -0.01, -0.05);     // beak (open, screaming)
+  P(head, new THREE.ConeGeometry(0.012, 0.04, 10).rotateX(-PI / 2), beak, 0, -0.026, -0.04).rotation.x = -0.3;
+  for (let i = 0; i < 3; i++) P(head, sphere(0.014, 8, 6), red, 0, 0.04 + (i === 1 ? 0.01 : 0), -0.012 + i * 0.012);   // comb
+  P(head, sphere(0.01, 8, 6), red, 0, -0.04, -0.03);                                            // wattle
+  for (const sx of [-1, 1]) { P(head, sphere(0.009, 8, 6), m.white, sx * 0.024, 0.01, -0.025); P(head, sphere(0.005, 6, 4), m.polymer, sx * 0.028, 0.01, -0.032); }   // derpy eyes
+  marker(g, 'tip', 0, 0.5, 0); marker(g, 'muzzle', 0, 0.45, -0.07);
+  return g;
+}
+export function bananaPeel(open = 1) {
+  const g = new THREE.Group();
+  const peel = std({ color: 0xf2d43a, roughness: 0.55, side: THREE.DoubleSide }); const inner = std({ color: 0xfaf0c0, roughness: 0.7 }); const tip = std({ color: 0x4a3a1a, roughness: 0.8 });
+  P(g, cylY(0.016, 0.02, 0.05, 10), peel, 0, 0.03, 0);                                          // base
+  P(g, cylY(0.006, 0.008, 0.03, 6), tip, 0, 0.065, 0);                                          // stem
+  for (let i = 0; i < 4; i++) {                                                                     // 4 floppy petals
+    const a = (i / 4) * PI * 2 + 0.4; const petal = new THREE.Group(); petal.rotation.set(0, a, 0); g.add(petal);
+    const lf = new THREE.PlaneGeometry(0.045, 0.16, 1, 5); const lp = lf.attributes.position;
+    for (let k = 0; k < lp.count; k++) { const y = lp.getY(k) + 0.08; lp.setX(k, lp.getX(k) * Math.sin(Math.min(1, y / 0.16) * PI * 0.85 + 0.3)); lp.setZ(k, -y * open * 0.95); lp.setY(k, y * (1 - open * 0.8) + Math.sin(y * 18) * 0.012); }
+    lf.computeVertexNormals(); P(petal, lf, peel, 0, 0.02, -0.015);
+    P(petal, lf.clone(), inner, 0, 0.022, -0.012);
+  }
+  return g;
+}
+function banana_peel(m) { const g = bananaPeel(0.25); g.scale.setScalar(1.15); return g; }
+
 // ───────── Sentry Turret (slot 5): deployed tripod gun (≈1.1 m) + the carried case ─────────
 export function sentryMesh(m) {
   const g = new THREE.Group();
@@ -484,6 +536,7 @@ function sentry_turret(m) {
   return g;
 }
 export const GEAR_BUILDERS = {
+  chainsaw, rubber_chicken, banana_peel,
   spear, grapple_hook, sentry_turret,
   land_mine,
   fists, knife, scythe, bat, karambit, katana, sledgehammer, shurikens, slippers,

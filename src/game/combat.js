@@ -149,6 +149,8 @@ export class Combat {
       if (kind === 'snowball') vel.y += 2.2;
       if (kind === 'tennis') vel.y += 1.4;
       if (kind === 'paintball') vel.y += 0.6;
+      if (kind === 'turkey') { vel.y += 2.5; sfx.gobble(a === this.g.player ? null : a.chest(V())); }
+      if (kind === 'present') { vel.y += 3.0; sfx.ui(); }
       if (kind === 'slipper' || kind === 'shuriken') vel.multiplyScalar(1 + (a.mods.throw || 0) * 0.5);
       const pr = this.spawnProj(a, d, kind, eye.clone().addScaledVector(aim, 0.4), vel, { visFrom: muzzle });
       if (d.projScale) pr.mesh.scale.setScalar(d.projScale);
@@ -158,6 +160,7 @@ export class Combat {
     } else {
       const n = d.pellets || 1;
       for (let i = 0; i < n; i++) this.addBullet(a, d, eye, jitter(aim, d.kind === 'pellet' ? d.spread : spread), muzzle);
+      if (d.confetti) { this.g.effects.confetti(muzzle, 26, aim, 9); sfx.partyHorn(a === this.g.player ? null : a.chest(V())); }
     }
     this.g.onFired(a, d, muzzle, aim);
     if (d.emptyPing && ws.mag === 0 && a === this.g.player) setTimeout(() => sfx.ping(), 60);
@@ -236,8 +239,9 @@ export class Combat {
         this.g.effects.blood(p); i++; continue;      // re-run this bullet next tick from the same spot
       } else if (ah) {
         const p = b.pos.clone().addScaledVector(b.dir, ah.t);
-        this.g.damage(ah.actor, ah.head ? b.head : b.dmg, { attacker: b.owner, weapon: b.def.id, head: ah.head, pos: p, dir: b.dir });
-        this.g.effects.blood(p);
+        this.g.damage(ah.actor, ah.head ? b.head : b.dmg, { attacker: b.owner, weapon: b.def.id, head: ah.head, pos: p, dir: b.dir, confetti: b.def.confetti });
+        if (b.def.confetti) this.g.effects.confetti(p, 4, null, 3); else this.g.effects.blood(p);
+        if (b.def.knockback && ah.actor.alive) this.g.push(ah.actor, V(b.dir.x * b.def.knockback, 0.5, b.dir.z * b.def.knockback), true);
         if (b.def.chain) this.chainArc(b, ah.actor, p);
         dead = true; b.pos.copy(p);
       } else if (wh) {
@@ -259,7 +263,7 @@ export class Combat {
   // ═════════════════ projectiles ═════════════════
   spawnProj(owner, def, kind, pos, vel, opts = {}) {
     const p = { id: opts.id || `${owner.id}:${this.seq++}`, kind, def, owner, pos: pos.clone(), vel: vel.clone(), t: 0, fuse: opts.fuse ?? def.fuse ?? 99, remote: !!opts.remote, stuck: null, bounces: 0, target: opts.target || null };
-    p.grav = { rocket: 0, disc: 0, harpoon: -3, bolt: -4, shuriken: -3, slipper: -12, gl_shell: -15, mortar_shell: -20, snowball: -9, paintball: -5, tennis: -12, spear: -7 }[kind] ?? -20;
+    p.grav = { rocket: 0, disc: 0, harpoon: -3, bolt: -4, shuriken: -3, slipper: -12, gl_shell: -15, mortar_shell: -20, snowball: -9, paintball: -5, tennis: -12, spear: -7, turkey: -14, present: -15 }[kind] ?? -20;
     p.mesh = projectileMesh(kind);
     if (kind === 'paintball') { p.color = opts.color ?? PAINT_COLORS[(Math.random() * PAINT_COLORS.length) | 0]; const mm = p.mesh.children[0]; if (mm) { mm.material = mm.material.clone(); mm.material.color.setHex(p.color); } }
     p.mesh.position.copy(opts.visFrom || pos);
@@ -298,18 +302,21 @@ export class Combat {
         }
       }
       // land mines: armed after a beat, triggered by an enemy stepping within range
-      if (!remove && p.kind === 'mine' && p.landed && !p.remote && p.t >= p.armAt) {
+      if (!remove && (p.kind === 'mine' || p.kind === 'banana') && p.landed && !p.remote && p.t >= p.armAt) {
         const cfg = p.def.mine;
         for (const t of this.g.actors) {
           if (!t.alive || !this.g.hostile(p.owner, t) || t.isTarget && false) continue;
           const dx = t.pos.x - p.pos.x, dz = t.pos.z - p.pos.z;
-          if (dx * dx + dz * dz < cfg.trigger * cfg.trigger && Math.abs(t.pos.y - p.pos.y) < 0.9) { sfx.beep(p.pos); this.explode(p, p.pos.clone(), null); remove = true; break; }
+          if (dx * dx + dz * dz < cfg.trigger * cfg.trigger && Math.abs(t.pos.y - p.pos.y) < 0.9) {
+            if (p.kind === 'banana') this.slip(p, t); else { sfx.beep(p.pos); this.explode(p, p.pos.clone(), null); }
+            remove = true; break;
+          }
         }
         if (!remove && p.led) p.led.visible = Math.floor(p.t * 2) % 2 === 0;
       }
       // fuses
       if (!remove && p.t >= p.fuse && !p.remote) remove = this.detonate(p);
-      if (!remove && p.t > (p.kind === 'mine' ? p.def.mine.life : p.kind === 'spear' ? 30 : 12)) remove = true;
+      if (!remove && p.t > (p.kind === 'mine' || p.kind === 'banana' ? p.def.mine.life : p.kind === 'spear' ? 30 : 12)) remove = true;
       // slipper pickup
       if (!remove && p.kind === 'slipper' && p.landed && p.owner.alive && p.owner.pos.distanceTo(p.pos) < 1.4) {
         const ws = Object.values(p.owner.weapons).find((w) => w.id === 'slippers'); if (ws && ws.mag === 0) { ws.mag = 1; ws.recharge = 0; } remove = true;
@@ -338,7 +345,7 @@ export class Combat {
   projHitActor(p, t, head, pos, dir) {
     const d = p.def;
     switch (p.kind) {
-      case 'rocket': case 'gl_shell': if (p.remote) return true; this.g.damage(t, d.dmg, { attacker: p.owner, weapon: d.id, head: false, pos, explosive: true, direct: true }); this.explode(p, pos, t); return true;
+      case 'rocket': case 'gl_shell': case 'turkey': case 'present': if (p.remote) return true; this.g.damage(t, d.dmg, { attacker: p.owner, weapon: d.id, head: false, pos, explosive: true, direct: true }); this.explode(p, pos, t); return true;
       case 'mortar_shell': if (p.remote) return true; this.explode(p, pos, null); return true;
       case 'disc':     // slices through: damage each actor once, keep flying
         (p.hits ||= new Set()).add(t);
@@ -390,7 +397,7 @@ export class Combat {
 
   projHitWorld(p, pos, n, box, dir) {
     switch (p.kind) {
-      case 'rocket': case 'mortar_shell':
+      case 'rocket': case 'mortar_shell': case 'turkey':
         if (box?.kind === 'ceiling') { this.g.effects.sparks(pos, n, 14); return true; }
         if (!p.remote) this.explode(p, pos, null); return true;
       case 'disc': {
@@ -398,7 +405,8 @@ export class Combat {
         p.pos.copy(pos); p.vel.addScaledVector(n, -2 * p.vel.dot(n)); p.bounces++; p.hits = null;   // ricochet: may slice the same enemy again
         this.g.effects.sparks(pos, n, 8); sfx.thud(pos); return false;
       }
-      case 'gl_shell': case 'frag': case 'smoke': case 'flash': case 'concussion': case 'singularity': {
+      case 'gl_shell': case 'present': case 'frag': case 'smoke': case 'flash': case 'concussion': case 'singularity': {
+        if (p.kind === 'present' && p.bounces < 3) sfx.boing(pos);
         p.pos.copy(pos); const vn = p.vel.dot(n); p.vel.addScaledVector(n, -vn * 1.45); p.vel.multiplyScalar(0.55); p.bounces++;
         if (p.vel.length() < 1.2 && n.y > 0.6) { p.vel.set(0, 0, 0); p.landed = true; p.mesh.position.copy(pos); }
         if (p.bounces < 4) sfx.thud(pos);
@@ -423,7 +431,7 @@ export class Combat {
         return false;
       case 'molotov': if (!p.remote) this.igniteMolotov(p, pos); else this.g.effects.explosion(pos, 1.5, { small: true }); return true;
       case 'sticky': p.stuck = { world: true }; p.pos.copy(pos); p.vel.set(0, 0, 0); p.mesh.quaternion.setFromUnitVectors(UP, n); return false;
-      case 'mine':
+      case 'mine': case 'banana':
         if (n.y > 0.6) { p.pos.copy(pos).addScaledVector(n, -0.02); p.vel.set(0, 0, 0); p.landed = true; p.stuck = { world: true }; p.armAt = p.t + p.def.mine.arm; p.fuse = Infinity; p.mesh.rotation.set(0, Math.random() * 6, 0); p.mesh.position.copy(p.pos); p.led = p.mesh.getObjectByName('led'); sfx.thud(pos); }
         else { p.vel.addScaledVector(n, -p.vel.dot(n) * 1.4).multiplyScalar(0.4); p.pos.copy(pos); }
         return false;
@@ -439,13 +447,13 @@ export class Combat {
 
   detonate(p) {
     switch (p.kind) {
-      case 'frag': case 'gl_shell': case 'sticky': this.explode(p, p.pos, null); return true;
+      case 'frag': case 'gl_shell': case 'present': case 'sticky': this.explode(p, p.pos, null); return true;
       case 'concussion': this.shockwave(p); return true;
       case 'singularity': { const v = this.makeVortex(p.pos.clone(), p.def.vortex, p.owner); this.g.onWorldEvent?.('vortex', { pos: v.pos.toArray(), owner: p.owner.id, id: p.id }); return true; }
       case 'smoke': this.makeSmoke(p.pos.clone(), p.def.smoke); this.g.onWorldEvent?.('smoke', { pos: p.pos.toArray() }); return true;
       case 'flash': this.flashbang(p); return true;
       case 'bolt': case 'shuriken': return true;
-      case 'slipper': case 'mine': case 'spear': return false;
+      case 'slipper': case 'mine': case 'banana': case 'spear': return false;
       default: return true;
     }
   }
@@ -456,7 +464,8 @@ export class Combat {
     this.g.effects.explosion(pos, sp.radius); sfx.explosion(pos, sp.radius / 4.5);
     this.g.shakeFrom(pos, sp.radius);
     if (p.ring) { p.ring.visible = false; }
-    this.g.onWorldEvent?.('boom', { pos: pos.toArray(), r: sp.radius, id: p.id });
+    this.g.boomFlair?.(p.kind, pos);
+    this.g.onWorldEvent?.('boom', { pos: pos.toArray(), r: sp.radius, id: p.id, k: p.kind });
     if (p.remote) return;
     // Ultra mortar: shell bursts into bomblets that scatter and detonate around the impact
     if (p.kind === 'mortar_shell' && d.cluster && !p.bomblet) {
@@ -662,12 +671,57 @@ export class Combat {
       if (it.altPressed) { ws.cooldown = d.interval; ws.swing = 0.001; ws.pendingHit = 0.12; sfx.whoosh(a === this.g.player ? null : a.chest(V()), true); this.g.onFired(a, d, null, a.aimDir(V())); }
       return;
     }
+    if (d.saw) return this.tickSaw(a, ws, it);
+    if (d.bawk && it.altPressed && this.g.time >= (a.bawkReady || 0)) this.bawk(a, d);
     if (d.grapple && it.altPressed) { if (a.grapple) a.releaseGrapple(false); else if (a.grappleCd <= 0) this.fireGrapple(a, d); }
     if (it.altPressed && d.ability && a.fx.scytheCd <= 0) { a.fx.scythe = d.ability.time; a.fx.scytheCd = d.ability.cooldown; sfx.whoosh(null, true); this.g.onAbility?.(a); }
     if (!it.fire || ws.cooldown > 0) return;
     ws.cooldown = d.interval; ws.swing = 0.001; ws.pendingHit = Math.min(0.12, d.interval * 0.35);
     sfx.whoosh(a === this.g.player ? null : a.chest(V()), d.interval > 0.8);
     this.g.onFired(a, d, null, a.aimDir(V()));
+  }
+  // Chainsaw: hold LMB to cut (hit every tick), RMB = revving lunge
+  tickSaw(a, ws, it) {
+    const d = ws.def; const me = a === this.g.player; const pos = me ? null : a.chest(V());
+    if (it.altPressed && this.g.time >= (a.sawReady || 0)) {
+      a.sawReady = this.g.time + d.saw.cooldown; const f = a.forward(V());
+      a.vel.x += f.x * d.saw.lunge; a.vel.z += f.z * d.saw.lunge; a.vel.y = Math.max(a.vel.y, 3); a.onGround = false;
+      a.lungeT = 0.4; a.lungeHit = null; sfx.saw(pos, true); sfx.slideWhistle(pos, true);
+      if (me) this.g.hud.toast('BRRRRRRRRR!', 'gold');
+    }
+    if (a.lungeT > 0) {
+      a.lungeT -= 1 / 60;
+      if (!a.lungeHit) for (const t of this.enemiesOf(a)) if (t.pos.distanceTo(a.pos) < 1.8) { a.lungeHit = t; this.g.damage(t, d.saw.lungeDmg, { attacker: a, weapon: d.id, melee: true, pos: t.chest(V()), dir: a.aimDir(V()) }); this.g.effects.blood(t.chest(V())); break; }
+    }
+    if (!it.fire) { if (me) sfx.saw(null, false); return; }
+    if (ws.cooldown > 0) return;
+    ws.cooldown = d.interval; a.sawing = this.g.time; sfx.saw(pos, true);
+    this.meleeHit(a, ws);
+    this.g.onFired(a, d, null, a.aimDir(V()));
+  }
+  // Rubber Chicken RMB: an ear-splitting BAWK that stuns everyone in front of you
+  bawk(a, d) {
+    const c = d.bawk; a.bawkReady = this.g.time + c.cooldown; const eye = a.eye(V()); const f = a.forward(V());
+    sfx.bawk(a === this.g.player ? null : a.chest(V()));
+    this.g.effects.popup('BAWK!', a.headPos(V()).add(_a.set(0, 0.8, 0)), { size: 140, time: 1.1 });
+    this.g.onWorldEvent?.('bawk', { a: a.id });
+    let n = 0;
+    for (const t of this.enemiesOf(a)) {
+      const v = _b.subVectors(t.pos, a.pos); const dist = v.length(); if (dist > c.radius) continue;
+      if (v.setY(0).normalize().dot(f) < 0.25 || !this.world.lineOfSight(eye, t.chest(_c))) continue;
+      this.g.stun(t, c.stun); n++; if (a === this.g.player) this.g.ach?.('bawks');
+    }
+    if (a === this.g.player) this.g.hud.toast(n ? `BAWK! ${n} enemy${n > 1 ? 'ies' : 'y'} stunned` : 'BAWK! (nobody heard you)', n ? 'gold' : '');
+  }
+  // Banana Peel: whoever steps on it goes flying with a backflip
+  slip(p, t) {
+    const s = p.def.slip; const f = t.vel.clone().setY(0); if (f.lengthSq() < 0.5) f.set(Math.random() - 0.5, 0, Math.random() - 0.5); f.normalize();
+    this.g.push(t, V(f.x * s.fwd, s.up, f.z * s.fwd), true);
+    this.g.stun(t, s.stun);
+    this.g.damage(t, p.def.dmg, { attacker: p.owner, weapon: p.def.id, pos: t.pos.clone(), slip: true });
+    this.g.slipFx(t, p.pos.clone(), p.id);
+    p.owner.aw && p.owner.aw.slips++;
+    if (p.owner === this.g.player) this.g.ach?.('slips');
   }
   throwSpear(a, ws) {
     const d = ws.def; const aim = a.aimDir(V()); const eye = a.eye(V());
@@ -718,9 +772,10 @@ export class Combat {
       let dmg = head ? d.head : d.dmg;
       if (d.backstab) { const tf = t.forward(_a); const to = _b.subVectors(t.pos, a.pos).setY(0).normalize(); if (tf.dot(to) > 0.45) dmg = Math.max(dmg, d.backstab); }
       this.g.damage(t, dmg, { attacker: a, weapon: d.id, head, melee: true, pos: t.chest(V()), dir });
-      if (d.knockback) { const kd = _a.subVectors(t.pos, a.pos).setY(0).normalize(); t.vel.addScaledVector(kd, d.knockback); t.vel.y += d.knockback * 0.35; }
-      sfx.thud(t.chest(V()));
-      this.g.effects.blood(t.chest(V()));
+      if (d.knockback && t.alive) { const kd = _a.subVectors(t.pos, a.pos).setY(0).normalize(); this.g.push(t, V(kd.x * d.knockback, d.knockback * 0.35, kd.z * d.knockback), true); }
+      if (d.squeak) { sfx.squeak(t.chest(V())); if (head) this.g.effects.popup('BONK!', t.headPos(V()).add(_a.set(0, 0.6, 0)), { size: 120, time: 0.8 }); this.g.effects.feathers(t.chest(V()), 5); }
+      else if (d.saw) { if (Math.random() < 0.5) this.g.effects.blood(t.chest(V())); this.g.effects.sparks(t.chest(V()), null, 2, 0xff3030); }
+      else { sfx.thud(t.chest(V())); this.g.effects.blood(t.chest(V())); }
       return;
     }
     // barricades / walls
@@ -728,7 +783,7 @@ export class Combat {
     if (wh) {
       if (wh.box?.kind === 'barricade') { if (d.breaker) this.destroyBarricade(wh.box.ref); else this.damageBarricade(wh.box.ref, d.dmg); }
       if (wh.box?.kind === 'sentry') this.damageSentry(wh.box.ref, d.breaker ? 999 : d.dmg, a);
-      this.g.effects.sparks(wh.point, wh.normal, 6); sfx.thud(wh.point);
+      this.g.effects.sparks(wh.point, wh.normal, d.saw ? 3 : 6); if (d.squeak) sfx.squeak(wh.point); else if (!d.saw) sfx.thud(wh.point);
     }
   }
 

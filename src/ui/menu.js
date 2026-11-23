@@ -1,6 +1,6 @@
 // Menus: main, mode/map select, loadout & shop (coins + rewarded-ad trials), skins, quests,
 // settings, pause, match results, inspect overlay.
-import { WEAPONS, WEAPON_BY_ID, bySlot, SLOT_NAMES, SLOT_ACCESS_PRICE, SKIN_TIERS, SHOP_SKINS, BASE_SPEED, HOLIDAY_SKINS, ULTRA_OF } from '../data/weapons.js';
+import { inSeason, seasonLabel, WEAPONS, WEAPON_BY_ID, bySlot, SLOT_NAMES, SLOT_ACCESS_PRICE, SKIN_TIERS, SHOP_SKINS, BASE_SPEED, HOLIDAY_SKINS, ULTRA_OF } from '../data/weapons.js';
 import { MAPS } from '../world/maps.js';
 import { MODES } from '../game/match.js';
 import { itemIcon, mapThumb } from '../render/icons.js';
@@ -236,8 +236,9 @@ export class UI {
     const slotLocked = slot >= 5 && !profile.slotOpen(slot);
     const cards = items.map((w) => {
       const own = profile.owns(w.id), trial = profile.onTrial(w.id), eq = lo[slot] === w.id;
-      const tag = eq ? '<em class="eq">EQUIPPED</em>' : trial ? '<em class="tr">TRIAL</em>' : own ? '' : `<em class="pr">◉ ${w.price}</em>`;
-      return `<button class="card ${this.loItem === w.id ? 'on' : ''} ${own || trial ? '' : 'locked'}" data-item="${w.id}"><img src="${itemIcon(w.id, profile.skinFor(w.id))}" alt=""><b>${w.name}</b>${tag}</button>`;
+      const tag = eq ? '<em class="eq">EQUIPPED</em>' : trial ? '<em class="tr">TRIAL</em>' : own ? '' : w.season && !inSeason(w) ? `<em class="pr">🔒 ${seasonLabel(w).slice(0, 3).toUpperCase()}</em>` : `<em class="pr">◉ ${w.price}</em>`;
+      const stag = w.season ? `<span class="shop-season ${inSeason(w) ? '' : 'off'}">${inSeason(w) ? 'SEASONAL' : 'OFF-SEASON'}</span>` : '';
+      return `<button class="card ${this.loItem === w.id ? 'on' : ''} ${own || trial ? '' : 'locked'}" data-item="${w.id}"><img src="${itemIcon(w.id, profile.skinFor(w.id))}" alt=""><b>${w.name}</b>${stag}${tag}</button>`;
     }).join('');
     const w = WEAPON_BY_ID[this.loItem];
     const own = profile.owns(w.id), usable = profile.usable(w.id);
@@ -247,14 +248,15 @@ export class UI {
       <h5>Skin shop · works on every weapon</h5>${SHOP_SKINS.map((t) => { const own = profile.ownsSkin(t.id); return `<button class="skin shop ${t.id} ${cur === t.id ? 'on' : ''} ${own ? '' : 'buyable'}" ${own ? `data-skin="${t.id}"` : `data-buyskin="${t.id}"`} ${!own && profile.coins < t.price ? 'disabled' : ''} title="${t.name}"><i></i><small>${t.name}${own ? '' : ' · ◉ ' + t.price}</small></button>`; }).join('')}</div>` : '';
     const uId = ULTRA_OF[w.id]; const U = uId && WEAPON_BY_ID[uId];
     const ultra = U ? `<div class="ultra-prev"><h5>⚡ ULTRA VARIANT <small>earned mid-match · lasts until you die</small></h5><div class="urow"><img src="${itemIcon(uId)}" alt=""><div><b>${U.name}</b><p>${U.desc}</p></div></div><button class="btn ultra" id="inspect-ultra">⚡ VIEW ULTRA IN 3D</button>${this.statsTable(U)}</div>` : '';
-    let actions = '';
+    let actions = w.season ? `<div class="lockmsg"><span class="shop-season ${inSeason(w) ? '' : 'off'}">${w.seasonName?.toUpperCase()} SEASONAL</span> ${inSeason(w) ? `Only in the shop during ${seasonLabel(w)} — grab it while you can! Yours forever once bought.` : `Back in the shop in ${seasonLabel(w)}. You can still try it with an ad trial.`}</div>` : '';
+    const offSeason = w.season && !inSeason(w) && !own;
     if (slotLocked) {
       actions = `<div class="lockmsg">Slot ${slot} (${SLOT_NAMES[slot]}) is locked.</div><button class="btn primary" id="buyslot" ${profile.coins < SLOT_ACCESS_PRICE[slot] ? 'disabled' : ''}>UNLOCK SLOT · ◉ ${SLOT_ACCESS_PRICE[slot]}</button><button class="btn ad" id="adslot">▶ WATCH AD · 1-MATCH TRIAL</button>`;
     } else if (usable) {
-      actions = lo[slot] === w.id ? `<button class="btn" disabled>EQUIPPED</button>${slot >= 5 ? '<button class="btn ghost" id="unequip">UNEQUIP</button>' : ''}` : `<button class="btn primary" id="equip">EQUIP</button>`;
-      if (!own) actions += `<button class="btn gold" id="buy" ${profile.coins < w.price ? 'disabled' : ''}>BUY · ◉ ${w.price}</button>`;
+      actions += lo[slot] === w.id ? `<button class="btn" disabled>EQUIPPED</button>${slot >= 5 ? '<button class="btn ghost" id="unequip">UNEQUIP</button>' : ''}` : `<button class="btn primary" id="equip">EQUIP</button>`;
+      if (!own) actions += `<button class="btn gold" id="buy" ${profile.coins < w.price || offSeason ? 'disabled' : ''}>${offSeason ? 'OFF-SEASON' : `BUY · ◉ ${w.price}`}</button>`;
     } else {
-      actions = `<button class="btn gold" id="buy" ${profile.coins < w.price ? 'disabled' : ''}>BUY · ◉ ${w.price}</button><button class="btn ad" id="ad">▶ WATCH AD · 1-MATCH TRIAL</button>`;
+      actions += `<button class="btn gold" id="buy" ${profile.coins < w.price || offSeason ? 'disabled' : ''}>${offSeason ? 'OFF-SEASON' : `BUY · ◉ ${w.price}`}</button><button class="btn ad" id="ad">▶ WATCH AD · 1-MATCH TRIAL</button>`;
     }
     this.root.innerHTML = `<div class="modal loadout">
       <header><h2>LOADOUT & SHOP</h2><div class="meta">${this.coinsHtml()}<button class="btn ghost" id="close">${this.inGame ? 'BACK TO MATCH' : 'CLOSE'} ✕</button></div></header>
@@ -361,7 +363,7 @@ export class UI {
     if (!aw?.mvp) return '';
     const m = aw.mvp; const who = (w) => `<span class="t-${w.team}">${esc(w.name)}</span>${w.me ? ' <em class="you">YOU</em>' : ''}`;
     const cards = aw.list.map((x) => `<div class="award ${x.who?.me ? 'me' : ''} ${x.id === 'afk' ? 'afk' : ''}"><span class="ai">${x.icon}</span><div><small>${x.title}</small><b>${x.who ? who(x.who) : 'Nobody'}</b><em>${esc(x.flavour)}</em></div><i>${x.value}</i></div>`).join('');
-    return `<div class="mvp-wrap"><div class="mvp-card ${m.me ? 'me' : ''}" style="--tc:var(--${m.team === 'blue' ? 'blue' : m.team === 'red' ? 'red' : 'fire2'})"><div class="star">⭐</div><small>MATCH MVP</small><h3>${who(m)}</h3>
+    return `<div class="mvp-wrap"><div class="mvp-card ${m.me ? 'me' : ''}" style="--tc:var(--${m.team === 'blue' ? 'blue' : m.team === 'red' ? 'red' : 'fire2'})"><div class="star">⭐</div><small>MATCH MVP</small><h3>${who(m)}</h3>${m.title ? `<em class="mvpt">“${esc(m.title)}”</em>` : ''}
       <div class="mvp-stats"><span><b>${m.k}</b>kills</span><span><b>${m.d}</b>deaths</span><span><b>${m.dmg}</b>damage</span><span><b>${m.hs}</b>headshots</span><span><b>${m.streak}</b>best streak</span></div></div>
       <div class="awards">${cards}</div></div>`;
   }

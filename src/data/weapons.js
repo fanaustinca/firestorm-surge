@@ -79,6 +79,17 @@ add({ id: 'tennis_launcher', name: 'Tennis Ball Launcher', slot: 1, price: 1000,
   kind: 'projectile', proj: 'tennis', mode: 'semi', interval: 0.26, dmg: 40, head: 80, mag: 8, reserve: 48, reload: 2.2, range: 70, vel: 40,
   bounces: 5, knockback: 5, fuse: 4, recoil: 0.03, ads: 1.2, desc: 'Ball-machine cannon. Balls bounce 5 times and keep going after hitting someone.' });
 
+// ── seasonal mains: buyable only during their months (owners keep them forever) ──
+add({ id: 'turkey_launcher', name: 'Turkey Launcher', slot: 1, price: 1000, speed: 0.9, season: [10], seasonName: 'Thanksgiving',
+  kind: 'projectile', proj: 'turkey', mode: 'semi', interval: 0.7, dmg: 170, head: 170, mag: 2, reserve: 10, reload: 2.3, range: 80, vel: 30,
+  splash: { radius: 6.0, max: 135, min: 45 }, knockback: 11, recoil: 0.05, ads: 1.3, desc: 'Lobs a whole roast turkey. Gobbles on impact. Explodes into stuffing.' });
+add({ id: 'present_launcher', name: 'Present Launcher', slot: 1, price: 1100, speed: 0.95, season: [11], seasonName: 'Winter Holidays',
+  kind: 'projectile', proj: 'present', mode: 'semi', interval: 0.55, dmg: 140, head: 140, mag: 4, reserve: 12, reload: 2.5, range: 60, vel: 24,
+  splash: { radius: 6.0, max: 125, min: 45 }, knockback: 9, bounce: true, fuse: 1.6, recoil: 0.04, ads: 1.3, desc: 'Bouncing gift boxes. SURPRISE! (It\'s an explosion. And confetti.)' });
+add({ id: 'confetti_cannon', name: 'Confetti Cannon', slot: 1, price: 900, speed: 1.0, season: [11, 0], seasonName: 'New Year',
+  kind: 'pellet', mode: 'semi', interval: 0.45, pellets: 12, dmg: 10, head: 14, mag: 4, reserve: 28, reload: 2.0, range: 13, vel: 260, spread: 0.11,
+  knockback: 1.3, confetti: true, recoil: 0.05, ads: 1.15, desc: 'Party popper the size of a bazooka. Blows people (and their dignity) away.' });
+
 // ───────────── Slot 2: Secondary ─────────────
 add({ id: 'pistol', name: 'Standard Pistol', slot: 2, free: true, price: 0, speed: 1.10,
   kind: 'bullet', mode: 'semi', interval: 0.150, dmg: 22, head: 38, mag: 15, reserve: 60, reload: 1.3, range: 35, vel: 280,
@@ -138,6 +149,14 @@ add({ id: 'spear', name: 'Spear', slot: 3, price: 1100, speed: 1.0,
   kind: 'melee', interval: 0.75, dmg: 120, head: 260, reach: 3.1, arc: 0.45, mag: 1, reserve: Infinity,
   spear: { dmg: 140, head: 320, vel: 46, ret: 6 }, draw: 0.35,
   desc: 'LMB: hurl it (140 dmg, one-shot headshot). RMB: brutal stab (120 / 260 head). Walk over it to pick it up, or it returns in 6 s.' });
+add({ id: 'chainsaw', name: 'Chainsaw', slot: 3, price: 1300, speed: 0.95,
+  kind: 'melee', interval: 0.1, dmg: 16, head: 24, reach: 2.4, arc: 0.55, draw: 0.5,
+  saw: { lunge: 15, cooldown: 4.5, lungeDmg: 45 },
+  desc: 'HOLD LMB: brrrrrr (160 DPS). RMB: revving lunge forward. Subtle.' });
+add({ id: 'rubber_chicken', name: 'Rubber Chicken', slot: 3, price: 400, speed: 1.12,
+  kind: 'melee', interval: 0.45, dmg: 24, head: 40, reach: 2.5, arc: 0.7, knockback: 17, squeak: true,
+  bawk: { radius: 7, stun: 0.7, cooldown: 8 },
+  desc: 'Squeaky bonk with absurd knockback. RMB: BAWK! — stuns everyone in front of you.' });
 
 // ───────────── Slot 4: Throwables ─────────────
 add({ id: 'frag', name: 'Frag Grenade', slot: 4, free: true, price: 0, speed: 1.05,
@@ -155,6 +174,9 @@ add({ id: 'sticky_bomb', name: 'Sticky Bomb', slot: 4, price: 600, speed: 1.05,
 add({ id: 'land_mine', name: 'Land Mine', slot: 4, price: 650, speed: 1.05,
   kind: 'throwable', proj: 'mine', carry: 2, mine: { arm: 1.0, trigger: 1.3, life: 120 }, dmg: 190,
   splash: { radius: 5.0, max: 150, min: 45 }, knockback: 10, desc: 'Toss it down. Arms in 1s, explodes when an enemy steps on it.' });
+add({ id: 'banana_peel', name: 'Banana Peel', slot: 4, price: 350, speed: 1.05,
+  kind: 'throwable', proj: 'banana', carry: 3, mine: { arm: 0.6, trigger: 1.0, life: 90 }, dmg: 15, slip: { stun: 1.4, up: 7.5, fwd: 6 },
+  desc: 'Classic. Anyone who steps on it goes flying. Comedy guaranteed.' });
 
 // ───────────── Slot 5: Usables ─────────────
 add({ id: 'medkit', name: 'Med Kit', slot: 5, free: true, slotFree: true, price: 0, speed: 1.0,
@@ -215,6 +237,9 @@ export const ULTRAS = [
   U('paintball_gun', { interval: 0.05, dmg: 17, head: 28, mag: 120, reserve: 360, vel: 100, desc: 'Twin-hopper tournament marker. 1200 RPM rainbow barrage.' }),
   U('water_gun', { dmg: 10, head: 10, mag: 300, reserve: 300, range: 22, cone: 0.13, twin: true, water: { push: 1.6 }, desc: 'SOAKER 9000. Twin nozzles, 22 m firehose that sends people flying.' }),
   U('tennis_launcher', { interval: 0.32, dmg: 48, head: 90, mag: 24, reserve: 72, triple: true, bounces: 6, desc: 'Pro ball machine. Serves 3 balls at once that bounce 6 times.' }),
+  U('turkey_launcher', { interval: 0.5, mag: 6, reserve: 18, triple: true, desc: 'THE FEAST. Three turkeys per shot. Nobody leaves hungry (or alive).' }),
+  U('present_launcher', { interval: 0.3, mag: 12, reserve: 24, triple: true, desc: 'Santa\'s Sack. Three presents per shot, 12-gift sleigh drum.' }),
+  U('confetti_cannon', { interval: 0.3, pellets: 20, dmg: 11, mag: 8, reserve: 40, range: 16, knockback: 1.6, desc: 'NEW YEAR\'S EVE. 20-pellet confetti storm that launches people into next year.' }),
   U('mortar', { interval: 0.3, dmg: 420, head: 420, mag: 6, reserve: 24, reload: 2.2, splash: { radius: 15, max: 300, min: 150 }, cluster: 3, desc: 'Six-shell battery. Every shell bursts into 3 bomblets.' }),
 ];
 export const ULTRA_OF = Object.fromEntries(ULTRAS.map((u) => [u.base, u.id]));
@@ -222,6 +247,9 @@ export const baseId = (id) => (id && id.endsWith('_ultra') ? id.slice(0, -6) : i
 export const WEAPON_BY_ID = Object.fromEntries([...W, ...ULTRAS].map((w) => [w.id, w]));
 export const bySlot = (slot) => W.filter((w) => w.slot === slot);
 export const DEFAULT_LOADOUT = { 1: 'assault_rifle', 2: 'pistol', 3: 'fists', 4: 'frag', 5: 'medkit', 6: 'tactical_gloves' };
+// seasonal availability (month is 0-based)
+export const inSeason = (w, d = new Date()) => !w.season || w.season.includes(d.getMonth());
+export const seasonLabel = (w) => { if (!w.season) return ''; const M = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']; return w.season.map((m) => M[m]).join(' & '); };
 export const isExplosive = (w) => !!(w.splash || w.fire || (w.kind === 'flame' && !w.water));
 
 // Kill-milestone skins (per weapon)

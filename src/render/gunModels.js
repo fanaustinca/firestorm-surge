@@ -697,7 +697,89 @@ function tennis_launcher(m) {
   return g;
 }
 
+// ───────── v2.8 seasonal / silly guns ─────────
+// roast turkey (shared by the launcher's chamber and the projectile)
+export function roastTurkey(s = 1) {
+  const g = new THREE.Group();
+  const skin = std({ color: 0xb8651e, roughness: 0.45, metalness: 0.05 }); const bone = std({ color: 0xf2e8d0, roughness: 0.6 });
+  P(g, sphere(0.1 * s, 18, 14), skin).scale.set(1.1, 0.75, 1.35);                                 // body
+  for (const sx of [-1, 1]) {                                                                        // drumsticks
+    const leg = new THREE.Group(); leg.position.set(sx * 0.07 * s, 0.02 * s, 0.09 * s); leg.rotation.set(-0.6, sx * 0.35, 0); g.add(leg);
+    P(leg, sphere(0.045 * s, 12, 10), skin, 0, 0, 0).scale.set(1, 1, 1.4);
+    P(leg, cylZ(0.009 * s, 0.009 * s, 0.07 * s, 8), bone, 0, 0, 0.08 * s);
+    for (const sy of [-1, 1]) P(leg, sphere(0.014 * s, 8, 6), bone, sy * 0.008 * s, 0, 0.115 * s);
+  }
+  for (const sx of [-1, 1]) P(g, sphere(0.04 * s, 10, 8), skin, sx * 0.1 * s, 0.03 * s, -0.04 * s).scale.set(0.6, 0.8, 1.4);   // wings
+  return g;
+}
+function turkey_launcher(m) {
+  const g = new THREE.Group();
+  const wood = std({ color: 0x7a4a24, roughness: 0.7 }); const copper = std({ color: 0xc0703a, metalness: 0.85, roughness: 0.3 });
+  const plaid = std({ color: 0x9a2a1a, roughness: 0.8 });
+  P(g, rbox(0.08, 0.1, 0.3, 0.016), wood, 0, 0.03, -0.04);                                    // wooden body
+  P(g, cylZ(0.085, 0.07, 0.34, 26, true), copper, 0, 0.06, -0.38);                             // roasting-pan barrel
+  P(g, cylZ(0.078, 0.064, 0.34, 26, true), m.darksteel, 0, 0.06, -0.38);
+  P(g, torus(0.086, 0.01, 26), copper, 0, 0.06, -0.555);
+  for (const z of [-0.28, -0.42]) P(g, torus(0.084, 0.006, 26), m.brass, 0, 0.06, z);
+  const t = roastTurkey(0.62); t.position.set(0, 0.07, -0.6); t.rotation.y = PI; g.add(t);                          // turkey peeking out
+  const mag = new THREE.Group(); mag.name = 'mag'; mag.position.set(0, 0.11, 0.04); g.add(mag);  // gravy boat on top
+  P(mag, new THREE.SphereGeometry(0.05, 16, 10, 0, PI * 2, 0, PI / 2).rotateX(PI), m.white, 0, 0.03, 0).scale.set(0.8, 0.6, 1.5);
+  P(mag, cylY(0.04, 0.04, 0.004, 14), std({ color: 0x6a3a14, roughness: 0.2 }), 0, 0.028, 0).scale.set(0.8, 1, 1.4);
+  P(mag, torus(0.022, 0.004, 10, PI), m.white, 0, 0.03, 0.08, 0, PI / 2, 0);
+  for (let i = 0; i < 6; i++) { const a = -0.9 + i * 0.36; P(g, rbox(0.03, 0.16, 0.006, 0.01), [plaid, m.orange, m.yellow][i % 3], Math.sin(a) * 0.1, 0.13 + Math.cos(a) * 0.08, 0.17, 0, 0, -a); }   // tail-feather fan
+  pistolGrip(g, m, wood, 0.06); triggerGroup(g, m, 0.02);
+  P(g, cylY(0.02, 0.022, 0.09, 12), wood, 0, -0.04, -0.3);
+  P(g, rbox(0.02, 0.02, 0.05, 0.004), m.darksteel, 0, 0.13, -0.15);
+  marker(g, 'muzzle', 0, 0.06, -0.58); marker(g, 'foregrip', 0, -0.09, -0.3); marker(g, 'sight', 0, 0.15, 0.12);
+  return g;
+}
+export function giftBox(s = 1, col = 0xd02a2a, rib = 0xffd040) {
+  const g = new THREE.Group(); const paper = std({ color: col, roughness: 0.55 }); const ribbon = std({ color: rib, roughness: 0.35, metalness: 0.2 });
+  P(g, rbox(0.14 * s, 0.12 * s, 0.14 * s, 0.01 * s), paper);
+  P(g, box(0.146 * s, 0.124 * s, 0.025 * s), ribbon); P(g, box(0.025 * s, 0.124 * s, 0.146 * s), ribbon);
+  for (const sx of [-1, 1]) P(g, torus(0.025 * s, 0.008 * s, 10), ribbon, sx * 0.022 * s, 0.075 * s, 0, 0, 0, sx * 0.6).scale.set(1, 0.7, 0.5);
+  return g;
+}
+function present_launcher(m) {
+  const g = new THREE.Group();
+  const green = std({ color: 0x1f7a3a, metalness: 0.3, roughness: 0.45 }); const cane = std({ color: 0xf4f4f4, roughness: 0.4 }); const red = std({ color: 0xd02a2a, roughness: 0.4 });
+  P(g, rbox(0.08, 0.1, 0.32, 0.016), green, 0, 0.03, -0.05);
+  P(g, rbox(0.12, 0.12, 0.3, 0.02), red, 0, 0.06, -0.36);                                        // square chute (gifts are boxes!)
+  P(g, rbox(0.1, 0.1, 0.32, 0.01), m.darksteel, 0, 0.06, -0.36);
+  for (let i = 0; i < 7; i++) P(g, box(0.124, 0.124, 0.014), i % 2 ? cane : red, 0, 0.06, -0.22 - i * 0.045);   // candy-cane stripes
+  const gb = giftBox(0.6, 0x2a6ad0, 0xf4f4f4); gb.position.set(0, 0.06, -0.5); g.add(gb);
+  const mag = new THREE.Group(); mag.name = 'mag'; mag.position.set(0, 0.14, -0.08); g.add(mag);   // stack of gifts on top
+  const g1 = giftBox(0.55, 0xd02a2a); mag.add(g1); const g2 = giftBox(0.45, 0xf0c020, 0xd02a2a); g2.position.set(0.01, 0.07, 0.01); g2.rotation.y = 0.5; mag.add(g2);
+  pistolGrip(g, m, green, 0.07); triggerGroup(g, m, 0.03);
+  P(g, tube([[0, -0.02, 0.2], [0, 0.05, 0.25], [0, 0.07, 0.17]], 0.012), red); P(g, tube([[0, -0.02, 0.2], [0, -0.05, 0.25]], 0.012), cane);   // candy-cane stock
+  P(g, sphere(0.022, 12, 10), std({ color: 0xffe080, emissive: 0xffa020, emissiveIntensity: 0.8 }), 0, 0.1, 0.12);   // jingle bell
+  P(g, cylY(0.018, 0.02, 0.09, 12), m.polymer, 0, -0.04, -0.3);
+  marker(g, 'muzzle', 0, 0.06, -0.53); marker(g, 'foregrip', 0, -0.09, -0.3); marker(g, 'sight', 0, 0.16, 0.1);
+  return g;
+}
+function confetti_cannon(m) {
+  const g = new THREE.Group();
+  const gold = std({ color: 0xffc83a, metalness: 0.85, roughness: 0.25 }); const purple = std({ color: 0x7a2ad0, roughness: 0.4, metalness: 0.2 });
+  P(g, rbox(0.07, 0.09, 0.28, 0.016), purple, 0, 0.03, -0.04);
+  const bell = latheZ([[0.028, 0.0], [0.04, 0.15], [0.065, 0.3], [0.09, 0.38], [0.1, 0.38], [0.075, 0.3], [0.05, 0.15], [0.035, 0.0]], 28);
+  P(g, bell, gold, 0, 0.04, -0.16);                                                                   // party-popper horn
+  const cols = [0xff2d6f, 0x2fd0ff, 0xffe02a, 0x6cff3a, 0xb04cff, 0xff8a1a];
+  for (let i = 0; i < 14; i++) { const a = i * 2.4; const r = 0.03 + (i % 4) * 0.012; P(g, box(0.014, 0.003, 0.02), std({ color: cols[i % 6], roughness: 0.5 }), Math.cos(a) * r, 0.04 + Math.sin(a) * r, -0.5, a, i, 0); }   // confetti in the mouth
+  for (let i = 0; i < 5; i++) P(g, torus(0.042 + i * 0.008, 0.004, 22), [m.white, purple][i % 2], 0, 0.04, -0.2 - i * 0.04);
+  const mag = new THREE.Group(); mag.name = 'mag'; mag.position.set(0, 0.11, -0.04); g.add(mag);   // confetti canister
+  P(mag, cylZ(0.035, 0.035, 0.16, 18), std({ color: 0x223040, transparent: true, opacity: 0.5, roughness: 0.1 }));
+  for (let i = 0; i < 12; i++) P(mag, box(0.012, 0.003, 0.016), std({ color: cols[i % 6] }), ((i % 3) - 1) * 0.016, ((i * 7) % 3 - 1) * 0.014, -0.06 + i * 0.011, i, i * 2, 0);
+  P(g, tube([[0.04, 0.0, 0.08], [0.09, 0.03, 0.06], [0.1, 0.08, 0.02]], 0.004), m.yellow);   // curly streamer
+  P(g, new THREE.ConeGeometry(0.03, 0.08, 14), std({ color: 0xff2d6f }), 0, 0.15, 0.14).rotation.z = 0.3;   // tiny party hat
+  pistolGrip(g, m, purple, 0.06); triggerGroup(g, m, 0.02);
+  P(g, rbox(0.044, 0.07, 0.15, 0.012), purple, 0, 0.02, 0.17);
+  marker(g, 'muzzle', 0, 0.04, -0.56); marker(g, 'foregrip', 0, -0.06, -0.28); marker(g, 'sight', 0, 0.12, 0.12);
+  P(g, cylY(0.016, 0.018, 0.08, 12), m.polymer, 0, -0.03, -0.28);
+  return g;
+}
+
 export const GUN_BUILDERS = {
+  turkey_launcher, present_launcher, confetti_cannon,
   snowball_launcher, paintball_gun, water_gun, tennis_launcher,
   assault_rifle, ak47, dmr, rocket_launcher, burst_rifle, lmg, heavy_sniper, flamethrower, grenade_launcher, mortar,
   pistol, smg, crossbow, burst_pistol, revolver, sawed_off, tactical_shotgun, taser,

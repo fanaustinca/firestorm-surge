@@ -1,7 +1,9 @@
 // window.DEV — Chrome F12 console API for rapid testing.
 import * as THREE from 'three';
 import { botTier, findPath, nodeAt, poisOf } from './game/bots.js';
-import { WEAPONS, WEAPON_BY_ID, ULTRA_OF, ULTRAS } from './data/weapons.js';
+import { WEAPONS, WEAPON_BY_ID, ULTRA_OF, ULTRAS, inSeason } from './data/weapons.js';
+import { matchAwards } from './game/awards.js';
+import { deathQuip, botLine } from './game/comedy.js';
 import { MAPS, buildMap, mapIssues } from './world/maps.js';
 import { MODES } from './game/match.js';
 import { profile } from './meta/profile.js';
@@ -83,7 +85,7 @@ export function installDev(game) {
       const pr = g.combat.spawnProj(p, d, d.proj, new THREE.Vector3(x, y + 1, z), new THREE.Vector3(0, impact ? -8 : -1, 0), { fuse: impact ? Infinity : 0.05 });
       return pr.id;
     },
-    game: g, profile, THREE, botTier, lib: { buildMap, mapIssues, findPath, nodeAt, poisOf },
+    game: g, profile, THREE, botTier, inSeason, matchAwards, deathQuip, botLine, lib: { buildMap, mapIssues, findPath, nodeAt, poisOf },
   };
   window.DEV = DEV;
   return DEV;

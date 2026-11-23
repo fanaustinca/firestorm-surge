@@ -92,6 +92,18 @@ export class Effects {
   paintBurst(pos, color, n = 9) {
     for (let i = 0; i < n; i++) this.spawn(pos, new THREE.Vector3((Math.random() - 0.5) * 5, Math.random() * 3.5, (Math.random() - 0.5) * 5), color, 0.07 + Math.random() * 0.06, 0.45, { gravity: -14 });
   }
+  // party confetti: bright flakes that flutter down slowly (dir = optional cone direction)
+  confetti(pos, n = 40, dir = null, speed = 6) {
+    const C = [0xff2d6f, 0x2fd0ff, 0xffe02a, 0x6cff3a, 0xb04cff, 0xff8a1a, 0xffffff];
+    for (let i = 0; i < n; i++) {
+      const v = dir ? dir.clone().multiplyScalar(speed * (0.5 + Math.random())).add(new THREE.Vector3((Math.random() - 0.5) * 3, (Math.random() - 0.3) * 3, (Math.random() - 0.5) * 3))
+        : new THREE.Vector3((Math.random() - 0.5) * speed, Math.random() * speed * 0.9, (Math.random() - 0.5) * speed);
+      this.spawn(pos, v, C[(Math.random() * C.length) | 0], 0.05 + Math.random() * 0.05, 1.4 + Math.random() * 1.2, { gravity: -2.2, drag: 2.2 });
+    }
+  }
+  feathers(pos, n = 18) {
+    for (let i = 0; i < n; i++) this.spawn(pos, new THREE.Vector3((Math.random() - 0.5) * 6, Math.random() * 5, (Math.random() - 0.5) * 6), [0xf4efe4, 0x9a6a3a, 0xd8c8a8][i % 3], 0.08 + Math.random() * 0.05, 1.6 + Math.random(), { gravity: -1.5, drag: 2.5 });
+  }
   // flat splat stuck to a surface (paint / snow). Ring-buffer of 160 meshes; materials shared per colour.
   decal(pos, normal, color, size = 0.3, style = 'paint') {
     this.decals ||= []; this.decalMats ||= new Map();

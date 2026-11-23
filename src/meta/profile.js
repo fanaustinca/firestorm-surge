@@ -1,6 +1,6 @@
 // Persistent player profile: coins, permanent unlocks, 1-match ad trials, kill-milestone skins,
 // daily quests (seeded by date), permanent rank (points from wins). Stored in localStorage.
-import { WEAPONS, WEAPON_BY_ID, DEFAULT_LOADOUT, SLOT_ACCESS_PRICE, SKIN_TIERS, SHOP_SKINS } from '../data/weapons.js';
+import { WEAPONS, WEAPON_BY_ID, DEFAULT_LOADOUT, SLOT_ACCESS_PRICE, SKIN_TIERS, SHOP_SKINS, inSeason } from '../data/weapons.js';
 
 const KEY = 'firestorm-surge-profile-v1';
 
@@ -60,6 +60,15 @@ export const ACHIEVEMENTS = [
   { id: 'mvp10', name: 'Carried Again', desc: 'Be MVP 10 times. Your team owes you lunch', stat: 'mvps', goal: 10, reward: 400, icon: '🎒' },
   { id: 'sandwich', name: 'Sandwich Break', desc: 'Win the Most AFK award. Was the sandwich good at least?', stat: 'afkAwards', goal: 1, reward: 50, icon: '🥪' },
   { id: 'marathon', name: 'Marathon Runner', desc: 'Travel 42 km in total', stat: 'distance', goal: 42000, reward: 300, icon: '🏃' },
+  { id: 'yeet_master', name: 'Yeet Master', desc: 'YEET 25 enemies into the sky', stat: 'yeets', goal: 25, reward: 200, icon: '🚀' },
+  { id: 'banana_rep', name: 'Banana Republic', desc: 'Make 15 enemies slip on your banana peels', stat: 'slips', goal: 15, reward: 150, icon: '🍌' },
+  { id: 'bawk', name: 'Chicken Jockey', desc: 'Stun 20 enemies with a BAWK', stat: 'bawks', goal: 20, reward: 150, icon: '🐔' },
+  { id: 'poultry', name: 'Poultry in Motion', desc: 'Get 10 kills with the Rubber Chicken', stat: 'chickenKills', goal: 10, reward: 150, icon: '🍗' },
+  { id: 'lumberjack', name: 'I\'m a Lumberjack and I\'m OK', desc: 'Get 20 kills with the Chainsaw', stat: 'sawKills', goal: 20, reward: 200, icon: '🪚' },
+  { id: 'petty', name: 'Petty', desc: 'Get 10 revenge kills', stat: 'revenges', goal: 10, reward: 150, icon: '😤' },
+  { id: 'stuffed', name: 'Get Stuffed', desc: 'Get 5 kills with the Turkey Launcher', stat: 'turkeyKills', goal: 5, reward: 150, icon: '🦃' },
+  { id: 'regift', name: 'Re-Gifter', desc: 'Get 5 kills with the Present Launcher', stat: 'presentKills', goal: 5, reward: 150, icon: '🎁' },
+  { id: 'party', name: 'Party Animal', desc: 'Get 10 kills with the Confetti Cannon', stat: 'confettiKills', goal: 10, reward: 150, icon: '🎉' },
   { id: 'dragon_hoard', name: 'Dragon Hoard', desc: 'Hold 5,000 coins at once (spending is for quitters)', stat: 'coinPeak', goal: 5000, reward: 250, icon: '🐉', max: true },
 ];
 
@@ -143,7 +152,7 @@ class Profile {
       if (left.length) { const sk = left[Math.floor(rand() * left.length)]; (this.d.skinsOwned ||= []).push(sk.id); res.text = `${sk.name} skin unlocked forever!`; }
       else { this.d.coins += 600; res.text = 'You own every skin — ◉ 600 instead!'; }
     } else if (seg.trial) {
-      const locked = WEAPONS.filter((w) => !w.free && !this.owns(w.id) && w.slot <= 4);
+      const locked = WEAPONS.filter((w) => !w.free && !this.owns(w.id) && w.slot <= 4 && inSeason(w));
       if (locked.length) { const w = locked[Math.floor(rand() * locked.length)]; this.grantTrial(w.id); this.d.loadout[w.slot] = w.id; res.trial = w.id; res.text = `${w.name} — free for your next match (equipped)!`; }
       else { this.d.coins += 200; res.text = 'You own everything — ◉ 200 instead!'; }
     } else { this.d.coins += seg.coins; res.text = `+◉ ${seg.coins}`; }
@@ -165,7 +174,7 @@ class Profile {
   usable(id) { const w = WEAPON_BY_ID[id]; if (!w) return false; return this.slotOpen(w.slot) && (this.owns(id) || this.trials.has(id)); }
   onTrial(id) { return this.trials.has(id) && !this.owns(id); }
   buy(id) {
-    const w = WEAPON_BY_ID[id]; if (!w || this.owns(id) || this.d.coins < w.price) return false;
+    const w = WEAPON_BY_ID[id]; if (!w || this.owns(id) || this.d.coins < w.price || !inSeason(w)) return false;
     this.d.coins -= w.price; this.d.owned.push(id); this.save(); return true;
   }
   buySlot(slot) {

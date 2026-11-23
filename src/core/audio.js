@@ -133,6 +133,19 @@ class Sfx {
     this._tone(g, t, 0.35, 220, 110, 'sawtooth', 0.35); this._tone(g, t + 0.05, 0.5, 330, 90, 'square', 0.15);
     try { if (window.speechSynthesis && !navigator.webdriver) { const u = new SpeechSynthesisUtterance('Emotional damage!'); u.rate = 1.15; u.pitch = 0.8; u.volume = this.volume; speechSynthesis.cancel(); speechSynthesis.speak(u); } } catch { /* optional */ }
   }
+  // ───── v2.8 comedy sounds ─────
+  _seq(g, t, notes, type = 'sine', gain = 0.3) { let tt = t; for (const [f0, f1, d] of notes) { this._tone(g, tt, d, f0, f1, type, gain); tt += d * 0.92; } }
+  squeak(pos) { if (!this._ok('squeak', 0.06)) return; const { g, v } = this._out(pos, 0.9, 45); if (v < 0.01) return; const t = this.ctx.currentTime; const f = 1100 + Math.random() * 500; this._tone(g, t, 0.09, f, f * 1.7, 'square', 0.22); this._tone(g, t + 0.08, 0.16, f * 1.6, f * 0.8, 'square', 0.2); }
+  bawk(pos) { if (!this._ok('bawk', 0.3)) return; const { g } = this._out(pos, 1.1, 70); const t = this.ctx.currentTime; this._seq(g, t, [[700, 1400, 0.08], [1300, 900, 0.07], [900, 1600, 0.09], [1700, 600, 0.35]], 'square', 0.25); this._noise(g, t, 0.6, 2500, 1200, 2, 'bandpass', 0.25); }
+  gobble(pos) { if (!this._ok('gobble', 0.15)) return; const { g, v } = this._out(pos, 0.9, 60); if (v < 0.01) return; const t = this.ctx.currentTime; for (let i = 0; i < 7; i++) this._tone(g, t + i * 0.055, 0.05, 520 + (i % 2) * 260, 380, 'sawtooth', 0.18); }
+  partyHorn(pos) { if (!this._ok('horn', 0.12)) return; const { g, v } = this._out(pos, 0.9, 60); if (v < 0.01) return; const t = this.ctx.currentTime; this._tone(g, t, 0.45, 440, 520, 'sawtooth', 0.2); this._tone(g, t, 0.45, 446, 528, 'square', 0.1); this._noise(g, t, 0.12, 3000, 6000, 1, 'highpass', 0.4); }
+  slideWhistle(pos, up = true) { if (!this._ok('whistle', 0.2)) return; const { g } = this._out(pos, 0.8, 60); const t = this.ctx.currentTime; this._tone(g, t, 0.55, up ? 400 : 1800, up ? 1900 : 380, 'sine', 0.35); this._tone(g, t, 0.55, up ? 404 : 1810, up ? 1915 : 384, 'triangle', 0.15); }
+  sadTrombone() { if (!this._ok('trombone', 1)) return; const { g } = this._out(null, 0.6); const t = this.ctx.currentTime; this._seq(g, t, [[294, 288, 0.32], [277, 272, 0.32], [262, 257, 0.32], [247, 220, 0.9]], 'sawtooth', 0.16); }
+  fanfare() { if (!this._ok('fanfare', 1)) return; const { g } = this._out(null, 0.5); const t = this.ctx.currentTime; this._seq(g, t, [[523, 523, 0.14], [523, 523, 0.14], [523, 523, 0.14], [659, 659, 0.36], [523, 523, 0.18], [784, 784, 0.6]], 'triangle', 0.25); }
+  boing(pos) { if (!this._ok('boing', 0.1)) return; const { g } = this._out(pos, 0.8, 50); const t = this.ctx.currentTime; this._tone(g, t, 0.35, 180, 520, 'sine', 0.4); this._tone(g, t + 0.05, 0.3, 260, 140, 'triangle', 0.2); }
+  // chainsaw: idle putter when held, screaming buzz while cutting
+  saw(pos, cutting) { if (!this._ok('saw' + (pos ? 'r' : 'l'), cutting ? 0.09 : 0.16)) return; const { g, v } = this._out(pos, cutting ? 0.55 : 0.25, 45); if (v < 0.01) return; const t = this.ctx.currentTime; const f = cutting ? 150 + Math.random() * 30 : 55; this._tone(g, t, cutting ? 0.11 : 0.17, f, f * 1.05, 'sawtooth', 0.4); this._noise(g, t, cutting ? 0.11 : 0.15, cutting ? 2400 : 600, cutting ? 1800 : 400, 1.5, 'bandpass', cutting ? 0.6 : 0.3); }
+  yeet(pos) { this.slideWhistle(pos, true); }
 }
 
 export const sfx = new Sfx();

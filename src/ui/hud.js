@@ -17,7 +17,7 @@ export class Hud {
       <div id="topbar"><div class="team red"><span id="sc-l">0</span></div><div class="mid"><div id="timer">0:00</div><div id="sclabel"></div></div><div class="team blue"><span id="sc-r">0</span></div></div>
       <canvas id="radar" width="168" height="168"></canvas>
       <div id="killfeed"></div>
-      <div id="teambadge"></div><div id="streakban"></div>
+      <div id="chat"></div><div id="teambadge"></div><div id="streakban"></div>
       <div id="health"><div class="row"><span class="ico">✚</span><div class="bar"><i id="hpbar"></i><i id="arbar"></i></div><span id="hpnum">150</span></div><div id="status"></div></div>
       <div id="ammo"><div id="wname"></div><div class="nums"><span id="mag">30</span><span id="res">/ 150</span></div><div id="reload"><i></i></div></div>
       <div id="slots"></div>
@@ -82,6 +82,14 @@ export class Hud {
     row.innerHTML = `<span class="x">✖</span><b>ELIMINATED</b> ${esc(name)}${w ? `<img src="${itemIcon(weapon) || ''}" alt=""><small>${esc(w.name)}</small>` : ''}${extra ? `<em>${extra}</em>` : ''}${coins ? `<i>+${coins} ◉</i>` : ''}`;
     el.prepend(row); while (el.children.length > 3) el.lastChild.remove();
     setTimeout(() => row.classList.add('out'), 2300); setTimeout(() => row.remove(), 2800);
+  }
+  // bot trash-talk feed (bottom-left, fades out)
+  chat(name, team, text) {
+    const box = document.getElementById('chat'); if (!box) return;
+    const el = document.createElement('div'); el.className = 'cl';
+    el.innerHTML = `<b class="t-${team}">${esc(name)}:</b> ${esc(text)}`;
+    box.appendChild(el); while (box.children.length > 5) box.firstChild.remove();
+    setTimeout(() => el.classList.add('out'), 6500); setTimeout(() => el.remove(), 7200);
   }
   // killstreak reward banner (health / armour restored)
   streak(n, name, hp, armor) {
@@ -159,6 +167,8 @@ export class Hud {
       this.el.wname.textContent = d.name + (g.profile?.onTrial(d.id) ? ' · TRIAL' : '');
       let mag = '', res = '';
       if (d.spear) { mag = ws.mag > 0 ? 'READY' : `${Math.max(0, ws.recharge).toFixed(1)}s`; res = ws.mag > 0 ? 'LMB THROW · RMB STAB' : 'GRAB IT OR WAIT'; }
+      else if (d.saw) { mag = '∞'; const cd = (a.sawReady || 0) - g.time; res = cd > 0 ? `LUNGE ${cd.toFixed(1)}s` : 'HOLD LMB · RMB LUNGE'; }
+      else if (d.bawk) { mag = '∞'; const cd = (a.bawkReady || 0) - g.time; res = cd > 0 ? `BAWK ${Math.ceil(cd)}s` : 'RMB: BAWK!'; }
       else if (d.kind === 'melee') { mag = '∞'; res = d.ability ? (a.fx.scytheCd > 0 ? `RMB ${Math.ceil(a.fx.scytheCd)}s` : 'RMB READY') : d.grapple ? (a.grapple ? 'HOOKED' : a.grappleCd > 0 ? `HOOK ${a.grappleCd.toFixed(1)}s` : 'RMB HOOK') : ''; }
       else if (d.kind === 'throwable') { mag = ws.count; res = ws.cook >= 0 && d.cookable ? `${Math.max(0, d.fuse - ws.cook).toFixed(1)}s` : 'LEFT'; }
       else if (d.kind === 'usable') { mag = ws.usableCd > 0 ? Math.ceil(ws.usableCd) + 's' : 'READY'; res = ''; }
@@ -204,7 +214,8 @@ export class Hud {
     const x = this.el.xhair; x.style.setProperty('--gap', `${gap}px`); x.classList.toggle('melee', !!melee); x.style.opacity = scoped || (a.ads && d?.kind !== 'pellet') || !a.alive ? 0 : 1;
     // spectate
     this.el.spectate.style.display = !a.alive && m && !m.ended ? 'block' : 'none';
-    if (!a.alive && m) this.el.spectate.innerHTML = m.roundBased ? `<b>ELIMINATED</b><br>Spectating — next round soon` : `<b>KILLED${a.lastAttacker && a.lastAttacker !== a ? ' BY ' + esc(a.lastAttacker.name).toUpperCase() : ''}</b><br>Respawning in ${Math.max(0, a.respawnT).toFixed(1)}s`;
+    const kb = document.getElementById('killban'); if (kb) kb.style.visibility = a.alive ? '' : 'hidden';
+    if (!a.alive && m) this.el.spectate.innerHTML = m.roundBased ? `<b>ELIMINATED</b><br>Spectating — next round soon` : `<b>KILLED${a.lastAttacker && a.lastAttacker !== a ? ' BY ' + esc(a.lastAttacker.name).toUpperCase() : ''}</b>${g.deathQuip ? `<em class="quip">${esc(g.deathQuip)}</em>` : '<br>'}Respawning in ${Math.max(0, a.respawnT).toFixed(1)}s`;
     this.drawRadar();
     if (g.input?.act('scores')) this.renderScoreboard(); else this.el.scoreboard.classList.remove('on');
   }
